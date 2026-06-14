@@ -309,7 +309,5 @@ This project showcases:
 •	Agentic AI Systems
 •	System Design
 These are highly relevant skills for AI, Backend, and Software Engineering roles.
-________________________________________
-# Resume Bullet
-Built an AI-powered research analysis platform that processes hundreds of academic papers, automatically identifies research trends, clusters related work, critiques methodologies, compares approaches, and discovers potential research gaps using LLMs, vector search, graph analytics, and multi-stage summarization pipelines.
+
 
