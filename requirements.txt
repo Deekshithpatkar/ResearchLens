@@ -1,0 +1,29 @@
+# ResearchLens Requirements - Tested with Python 3.14.5
+# Phase 1: Core PDF processing and API infrastructure
+
+# Web Framework
+fastapi==0.104.1
+uvicorn==0.24.0
+starlette==0.27.0
+
+# PDF Processing  
+pdfplumber==0.10.3
+pdfminer.six==20221105
+pypdfium2>=4.18.0
+Pillow>=9.1
+
+# NLP & Embeddings
+sentence-transformers==2.2.2
+sentencepiece==0.2.1
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Core dependencies (already installed as transitive deps)
+# torch>=1.11.0
+# numpy
+# scipy
+# scikit-learn
+# transformers (see NOTE below)
+# huggingface-hub (see NOTE below)
