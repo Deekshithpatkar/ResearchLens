@@ -1,0 +1,129 @@
+{
+  "query": "what is the objective?",
+  "num_results": 5,
+  "results": [
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": -1,
+      "chunk_type": "summary",
+      "chunk_preview": "Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest performing models also connect the encoder and decoder through an attention mechanism....",
+      "similarity_score": 0.5997522966055547
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 3,
+      "chunk_type": "chunk",
+      "chunk_preview": "Background: ThegoalofreducingsequentialcomputationalsoformsthefoundationoftheExtendedNeuralGPU [20],ByteNet[15]andConvS2S[8],allofwhichuseconvolutionalneuralnetworksasbasicbuilding block,computinghiddenrepresentationsinp...",
+      "similarity_score": 0.5138155773977771
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 7,
+      "chunk_type": "chunk",
+      "chunk_preview": "Background: Another way of describing this is as two convolutions with kernel size 1. The dimensionality of input and output is d = 512, and the inner-layer has dimensionality model d =2048. ff 3.4 EmbeddingsandSoftmax S...",
+      "similarity_score": 0.4813227073687424
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 1,
+      "chunk_type": "chunk",
+      "chunk_preview": "Abstract: Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest performing models also connect the encoder and decoder through an attention ...",
+      "similarity_score": 0.4795005041743764
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 14,
+      "chunk_type": "chunk",
+      "chunk_preview": "Conclusion: Inthiswork,wepresentedtheTransformer,thefirstsequencetransductionmodelbasedentirelyon attention,replacingtherecurrentlayersmostcommonlyusedinencoder-decoderarchitectureswith multi-headedself-attention. For tr...",
+      "similarity_score": 0.4766013744243685
+    }
+  ],
+  "retrieval_note": "Results are ranked from summary-style context and detailed chunks with lightweight keyword reranking"
+}
+
+{
+  "query": "what are the contributions?",
+  "num_results": 5,
+  "results": [
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": -1,
+      "chunk_type": "summary",
+      "chunk_preview": "Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest performing models also connect the encoder and decoder through an attention mechanism....",
+      "similarity_score": 0.612370818930146
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 3,
+      "chunk_type": "chunk",
+      "chunk_preview": "Background: ThegoalofreducingsequentialcomputationalsoformsthefoundationoftheExtendedNeuralGPU [20],ByteNet[15]andConvS2S[8],allofwhichuseconvolutionalneuralnetworksasbasicbuilding block,computinghiddenrepresentationsinp...",
+      "similarity_score": 0.5090485420160878
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 1,
+      "chunk_type": "chunk",
+      "chunk_preview": "Abstract: Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest performing models also connect the encoder and decoder through an attention ...",
+      "similarity_score": 0.49205872852602295
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 14,
+      "chunk_type": "chunk",
+      "chunk_preview": "Conclusion: Inthiswork,wepresentedtheTransformer,thefirstsequencetransductionmodelbasedentirelyon attention,replacingtherecurrentlayersmostcommonlyusedinencoder-decoderarchitectureswith multi-headedself-attention. For tr...",
+      "similarity_score": 0.49092846335465606
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 7,
+      "chunk_type": "chunk",
+      "chunk_preview": "Background: Another way of describing this is as two convolutions with kernel size 1. The dimensionality of input and output is d = 512, and the inner-layer has dimensionality model d =2048. ff 3.4 EmbeddingsandSoftmax S...",
+      "similarity_score": 0.47327198440998397
+    }
+  ],
+  "retrieval_note": "Results are ranked from summary-style context and detailed chunks with lightweight keyword reranking"
+}
+
+
+{
+  "query": "what method was used?",
+  "num_results": 5,
+  "results": [
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": -1,
+      "chunk_type": "summary",
+      "chunk_preview": "Thedominantsequencetransductionmodelsarebasedoncomplexrecurrentor convolutionalneuralnetworksthatincludeanencoderandadecoder. Thebest performing models also connect the encoder and decoder through an attention mechanism....",
+      "similarity_score": 0.5412991893148462
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 7,
+      "chunk_type": "chunk",
+      "chunk_preview": "Background: Another way of describing this is as two convolutions with kernel size 1. The dimensionality of input and output is d = 512, and the inner-layer has dimensionality model d =2048. ff 3.4 EmbeddingsandSoftmax S...",
+      "similarity_score": 0.4608469631523845
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 14,
+      "chunk_type": "chunk",
+      "chunk_preview": "Conclusion: Inthiswork,wepresentedtheTransformer,thefirstsequencetransductionmodelbasedentirelyon attention,replacingtherecurrentlayersmostcommonlyusedinencoder-decoderarchitectureswith multi-headedself-attention. For tr...",
+      "similarity_score": 0.4555963971999202
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 3,
+      "chunk_type": "chunk",
+      "chunk_preview": "Background: ThegoalofreducingsequentialcomputationalsoformsthefoundationoftheExtendedNeuralGPU [20],ByteNet[15]andConvS2S[8],allofwhichuseconvolutionalneuralnetworksasbasicbuilding block,computinghiddenrepresentationsinp...",
+      "similarity_score": 0.44839055681131745
+    },
+    {
+      "paper_id": "Attention_is_all_you_need",
+      "chunk_index": 16,
+      "chunk_type": "chunk",
+      "chunk_preview": "References: [14] ŁukaszKaiserandIlyaSutskever. NeuralGPUslearnalgorithms. InInternationalConference onLearningRepresentations(ICLR),2016. [15] NalKalchbrenner,LasseEspeholt,KarenSimonyan,AaronvandenOord,AlexGraves,andKo-...",
+      "similarity_score": 0.4458779625605167
+    }
+  ],
+  "retrieval_note": "Results are ranked from summary-style context and detailed chunks with lightweight keyword reranking"
+}

@@ -27,3 +27,5 @@ requests==2.31.0
 # scikit-learn
 # transformers (see NOTE below)
 # huggingface-hub (see NOTE below)
+
+chromadb==1.5.9

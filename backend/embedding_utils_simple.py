@@ -1,67 +1,110 @@
-"""
-Simplified embedding generator using cached embeddings for MVP.
-Works around Python 3.14 dependency issues.
-"""
+"""Embedding utilities with lightweight cleaning and a reliable lexical-semantic fallback."""
 
-import json
+import hashlib
 import pickle
+import re
 from pathlib import Path
+from typing import List
 
-# Try to use sentence-transformers, fallback to simple hashing
+import numpy as np
+
+from backend.text_chunker import preprocess_text
+
 try:
     from sentence_transformers import SentenceTransformer
     USE_SENTENCE_TRANSFORMERS = True
 except ImportError:
+    SentenceTransformer = None
     USE_SENTENCE_TRANSFORMERS = False
-    import hashlib
 
 EMBEDDINGS_CACHE = Path(__file__).parent.parent / "data" / ".embeddings_cache"
 EMBEDDINGS_CACHE.mkdir(exist_ok=True)
 
+_MODEL = None
+
+
 def _get_cached_embedding(text_hash: str):
-    """Try to load cached embedding"""
     cache_file = EMBEDDINGS_CACHE / f"{text_hash}.pkl"
     if cache_file.exists():
-        with open(cache_file, 'rb') as f:
+        with open(cache_file, "rb") as f:
             return pickle.load(f)
     return None
 
+
 def _save_cached_embedding(text_hash: str, embedding):
-    """Save embedding to cache"""
     cache_file = EMBEDDINGS_CACHE / f"{text_hash}.pkl"
-    with open(cache_file, 'wb') as f:
+    with open(cache_file, "wb") as f:
         pickle.dump(embedding, f)
 
-def generate_embeddings(chunks):
-    """
-    Generate embeddings for text chunks.
-    Uses SentenceTransformer if available, otherwise returns mock embeddings.
-    
-    Args:
-        chunks: List of text strings
-        
-    Returns:
-        numpy array of embeddings (N, 384) for all-MiniLM-L6-v2 model
-    """
-    import numpy as np
-    
+
+def _get_model():
+    global _MODEL
+    if _MODEL is not None:
+        return _MODEL
+
+    if not USE_SENTENCE_TRANSFORMERS:
+        raise ImportError("sentence-transformers is not available")
+
+    for model_name in ["all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2"]:
+        try:
+            _MODEL = SentenceTransformer(model_name)
+            return _MODEL
+        except Exception as exc:
+            print(f"Warning: failed to load embedding model {model_name}: {exc}")
+
+    raise RuntimeError("No embedding model could be loaded")
+
+
+def _tokenize(text: str):
+    text = preprocess_text(text).lower()
+    return re.findall(r"[a-z0-9]+", text)
+
+
+def _build_lexical_embedding(text: str, vocab=None, dim=384):
+    tokens = _tokenize(text)
+    if not tokens:
+        return np.zeros(dim, dtype=np.float32)
+
+    if vocab is None:
+        vocab = sorted(set(tokens))
+
+    vector = np.zeros(dim, dtype=np.float32)
+    for token in tokens:
+        idx = abs(hash(token)) % dim
+        vector[idx] += 1.0
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector = vector / norm
+    return vector
+
+
+def generate_embeddings(chunks: List[str], for_query: bool = False):
+    """Generate embeddings for text chunks using a sentence-transformer when available and a deterministic lexical fallback otherwise."""
+    if not chunks:
+        return np.empty((0, 384), dtype=np.float32)
+
+    cleaned_chunks = [preprocess_text(chunk) for chunk in chunks]
+    cleaned_chunks = [chunk for chunk in cleaned_chunks if chunk]
+
+    if not cleaned_chunks:
+        cleaned_chunks = [" ".join(chunks)]
+
     if USE_SENTENCE_TRANSFORMERS:
         try:
-            model = SentenceTransformer("all-MiniLM-L6-v2")
-            embeddings = model.encode(chunks)
-            return embeddings
-        except Exception as e:
-            print(f"Warning: SentenceTransformer failed ({e}), using fallback")
-    
-    # Fallback: generate mock embeddings based on text hash
-    # This allows testing the pipeline without full dependencies
-    embeddings = []
-    for chunk in chunks:
-        # Create deterministic mock embedding from text
-        chunk_hash = hashlib.sha256(chunk.encode()).hexdigest()
-        seed = int(chunk_hash[:16], 16) % (2**31)
-        np.random.seed(seed)
-        embedding = np.random.randn(384).astype(np.float32)
-        embeddings.append(embedding)
-    
-    return np.array(embeddings)
+            model = _get_model()
+            embeddings = model.encode(
+                cleaned_chunks,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            return np.asarray(embeddings, dtype=np.float32)
+        except Exception as exc:
+            print(f"Warning: SentenceTransformer failed ({exc}), using lexical fallback")
+
+    vocab = set()
+    for chunk in cleaned_chunks:
+        vocab.update(_tokenize(chunk))
+    vocab = sorted(vocab)
+    embeddings = [_build_lexical_embedding(chunk, vocab=vocab) for chunk in cleaned_chunks]
+    return np.array(embeddings, dtype=np.float32)
