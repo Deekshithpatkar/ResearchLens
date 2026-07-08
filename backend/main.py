@@ -9,15 +9,21 @@ from typing import List, Dict
 import numpy as np
 import chromadb
 from chromadb.config import Settings
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from backend.pdf_utils import extract_text_from_pdf
 from backend.text_chunker import chunk_text, preprocess_text
 from backend.embedding_utils_simple import generate_embeddings
+from backend.llm_utils import generate_response
 
 app = FastAPI(
     title="ResearchLens API",
-    description="PDF processing and semantic search engine",
-    version="0.1.0"
+    description="PDF processing, semantic search, and RAG query engine",
+    version="0.2.0"
+
 )
 
 # Add CORS middleware for frontend integration
@@ -142,7 +148,9 @@ def home():
         "endpoints": [
             "POST /upload-pdf/",
             "GET /papers/",
+            "GET /dashboard/",
             "POST /search/",
+            "POST /query/",
             "GET /papers/{paper_id}"
         ]
     }
@@ -361,6 +369,25 @@ def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during search: {str(e)}")
+
+@app.post("/query/")
+def query_papers(query: str, paper_id: str = None, top_k: int = 5):
+    """
+    Perform semantic search and generate a synthesized, polished response using Gemini.
+    """
+    try:
+        search_results = semantic_search(query=query, paper_id=paper_id, top_k=top_k)
+        chunks = search_results.get("results", [])
+        
+        answer = generate_response(query=query, chunks=chunks)
+        
+        return {
+            "query": query,
+            "answer": answer,
+            "chunks": chunks
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating RAG response: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
