@@ -21,7 +21,7 @@ def test_pipeline():
     """Test the complete PDF -> embeddings pipeline"""
     
     # Use first sample PDF
-    pdf_path = Path(__file__).parent.parent / "data" / "Attention is all you need.pdf"
+    pdf_path = Path(__file__).parent.parent / "papers" / "Attention is all you need.pdf"
     
     print(f"Testing pipeline with: {pdf_path.name}")
     print("=" * 70)

@@ -1,7 +1,5 @@
 """Embedding utilities with lightweight cleaning and a reliable lexical-semantic fallback."""
 
-import hashlib
-import pickle
 import re
 from pathlib import Path
 from typing import List
@@ -17,24 +15,7 @@ except ImportError:
     SentenceTransformer = None
     USE_SENTENCE_TRANSFORMERS = False
 
-EMBEDDINGS_CACHE = Path(__file__).parent.parent / "data" / ".embeddings_cache"
-EMBEDDINGS_CACHE.mkdir(exist_ok=True)
-
 _MODEL = None
-
-
-def _get_cached_embedding(text_hash: str):
-    cache_file = EMBEDDINGS_CACHE / f"{text_hash}.pkl"
-    if cache_file.exists():
-        with open(cache_file, "rb") as f:
-            return pickle.load(f)
-    return None
-
-
-def _save_cached_embedding(text_hash: str, embedding):
-    cache_file = EMBEDDINGS_CACHE / f"{text_hash}.pkl"
-    with open(cache_file, "wb") as f:
-        pickle.dump(embedding, f)
 
 
 def _get_model():

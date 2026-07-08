@@ -23,7 +23,7 @@ def test_upload_pdf():
     """Test PDF upload and processing"""
     print("\n2. Testing PDF Upload...")
     
-    pdf_path = Path(__file__).parent.parent / "data" / "Attention is all you need.pdf"
+    pdf_path = Path(__file__).parent.parent / "papers" / "Attention is all you need.pdf"
     
     if not pdf_path.exists():
         print(f"   x PDF not found: {pdf_path}")
