@@ -48,13 +48,19 @@ CHUNKS_DIR.mkdir(exist_ok=True)
 CHROMA_DIR = DATA_DIR / "chroma"
 CHROMA_DIR.mkdir(exist_ok=True)
 
+import os
+
 chroma_client = chromadb.Client(
     Settings(
         is_persistent=True,
         persist_directory=str(CHROMA_DIR),
     )
 )
-collection = chroma_client.get_or_create_collection(name="researchlens")
+
+has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
+collection_name = "researchlens_gemini" if has_gemini else "researchlens"
+collection = chroma_client.get_or_create_collection(name=collection_name)
+
 
 def load_metadata() -> Dict:
     """Load or create metadata file"""
@@ -335,7 +341,9 @@ def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
             lowered = text.lower()
             boost = 0.0
 
-            if meta.get("chunk_type") == "summary":
+            # Only boost summary/abstract chunks if the query is asking for high-level overview information
+            is_overview_query = any(word in query.lower() for word in ["summary", "objective", "goal", "overview", "abstract", "propose", "introduce", "contribution", "what is the paper about", "what does this paper do"])
+            if meta.get("chunk_type") == "summary" and is_overview_query:
                 boost += 0.12
             if any(word in lowered for word in ["abstract", "objective", "goal", "purpose", "problem", "contribution", "introduc", "method", "results"]):
                 boost += 0.06
@@ -353,6 +361,7 @@ def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
                 "chunk_index": meta.get("chunk_index"),
                 "chunk_type": meta.get("chunk_type", "chunk"),
                 "chunk_preview": text[:220] + "..." if len(text) > 220 else text,
+                "content": doc,
                 "similarity_score": similarity,
             })
 
@@ -371,7 +380,7 @@ def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
         raise HTTPException(status_code=500, detail=f"Error during search: {str(e)}")
 
 @app.post("/query/")
-def query_papers(query: str, paper_id: str = None, top_k: int = 5):
+def query_papers(query: str, paper_id: str = None, top_k: int = 8):
     """
     Perform semantic search and generate a synthesized, polished response using Gemini.
     """

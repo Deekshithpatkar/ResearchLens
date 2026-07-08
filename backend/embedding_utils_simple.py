@@ -79,10 +79,31 @@ def _build_lexical_embedding(text: str, vocab=None, dim=384):
 
 
 def generate_embeddings(chunks: List[str], for_query: bool = False):
-    """Generate embeddings for text chunks using a sentence-transformer when available and a deterministic lexical fallback otherwise."""
+    """Generate embeddings for text chunks using Gemini's gemini-embedding-2 if available, otherwise falling back to sentence-transformers."""
     if not chunks:
-        return np.empty((0, 384), dtype=np.float32)
+        return np.empty((0, 3072), dtype=np.float32)
 
+    import os
+    import google.generativeai as genai
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        try:
+            genai.configure(api_key=api_key)
+            task_type = "retrieval_query" if for_query else "retrieval_document"
+            res = genai.embed_content(
+                model="models/gemini-embedding-2",
+                content=chunks,
+                task_type=task_type
+            )
+            embeddings = res.get("embedding", [])
+            return np.array(embeddings, dtype=np.float32)
+        except Exception as e:
+            print(f"Warning: Gemini embedding generation failed ({e}), falling back to local model")
+
+    # Local sentence-transformers fallback
     cleaned_chunks = [preprocess_text(chunk) for chunk in chunks]
     cleaned_chunks = [chunk for chunk in cleaned_chunks if chunk]
 
@@ -106,5 +127,5 @@ def generate_embeddings(chunks: List[str], for_query: bool = False):
     for chunk in cleaned_chunks:
         vocab.update(_tokenize(chunk))
     vocab = sorted(vocab)
-    embeddings = [_build_lexical_embedding(chunk, vocab=vocab) for chunk in cleaned_chunks]
+    embeddings = [_build_lexical_embedding(chunk, vocab=vocab, dim=384) for chunk in cleaned_chunks]
     return np.array(embeddings, dtype=np.float32)

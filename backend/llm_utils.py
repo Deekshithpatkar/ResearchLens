@@ -30,8 +30,8 @@ def generate_response(query: str, chunks: List[Dict]) -> str:
     for idx, chunk in enumerate(chunks):
         paper_id = chunk.get("paper_id", "Unknown Paper")
         chunk_type = chunk.get("chunk_type", "chunk")
-        preview = chunk.get("chunk_preview", "")
-        context_str += f"--- Source [{idx + 1}] (Paper: {paper_id}, Type: {chunk_type}) ---\n{preview}\n\n"
+        content = chunk.get("content", chunk.get("chunk_preview", ""))
+        context_str += f"--- Source [{idx + 1}] (Paper: {paper_id}, Type: {chunk_type}) ---\n{content}\n\n"
 
     # Construct the prompt
     prompt = f"""You are ResearchLens AI, a professional research assistant.
@@ -48,8 +48,8 @@ Context Chunks:
 Answer:"""
 
     try:
-        # Use gemini-1.5-flash for general synthesis
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # Use gemini-2.5-flash for general synthesis
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
