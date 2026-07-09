@@ -27,18 +27,18 @@ def generate_response(query: str, chunks: List[Dict]) -> str:
 
     # Format the context chunks
     context_str = ""
-    for idx, chunk in enumerate(chunks):
+    for chunk in chunks:
         paper_id = chunk.get("paper_id", "Unknown Paper")
-        chunk_type = chunk.get("chunk_type", "chunk")
+        clean_paper_name = paper_id.replace("_", " ")
         content = chunk.get("content", chunk.get("chunk_preview", ""))
-        context_str += f"--- Source [{idx + 1}] (Paper: {paper_id}, Type: {chunk_type}) ---\n{content}\n\n"
+        context_str += f"--- Paper: {clean_paper_name} ---\n{content}\n\n"
 
     # Construct the prompt
     prompt = f"""You are ResearchLens AI, a professional research assistant.
 Your task is to answer the user's research query using ONLY the provided paper chunks as context.
 Synthesize a comprehensive, clear, and well-structured response.
-If the context does not contain enough information to answer the query, state that clearly and synthesize what you can from the available details.
-Always cite your sources using the source numbers (e.g., [1], [2]) corresponding to the relevant papers.
+If the context does not contain enough information to answer the query, state that clearly.
+Always cite your sources by placing the name of the paper in square brackets at the end of the sentence or statement (e.g., [Attention is all you need]). Do not use source numbers or chunk numbers.
 
 Research Query: {query}
 

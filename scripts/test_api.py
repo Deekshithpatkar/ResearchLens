@@ -36,9 +36,12 @@ def test_upload_pdf():
     print(f"   Status: {response.status_code}")
     if response.status_code == 200:
         data = response.json()
-        print(f"   * Paper ID: {data.get('paper_id')}")
-        print(f"   * Chunks: {data.get('total_chunks')}")
-        print(f"   * Embedding Dimension: {data.get('embedding_dimension')}")
+        results = data.get("results", [])
+        if results:
+            first_res = results[0]
+            print(f"   * Paper ID: {first_res.get('paper_id')}")
+            print(f"   * Chunks: {first_res.get('total_chunks')}")
+            print(f"   * Embedding Dimension: {first_res.get('embedding_dimension')}")
         return True
     else:
         print(f"   x Error: {response.text}")

@@ -1,5 +1,9 @@
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 import json
 from datetime import datetime
+from typing import List
 import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,95 +46,120 @@ def home():
     }
 
 @app.post("/upload-pdf/")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: List[UploadFile] = File(...)):
     """
-    Upload and process a PDF file.
-    Extracts text, generates chunks, and creates embeddings.
+    Upload and process multiple PDF files.
+    Extracts text, generates chunks, and creates embeddings for each.
     """
-    try:
-        # Save uploaded file
-        file_path = PAPERS_DIR / file.filename
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
-        
-        # Process PDF
-        extracted_text = extract_text_from_pdf(str(file_path))
-        if not extracted_text or len(extracted_text.strip()) == 0:
-            raise HTTPException(status_code=400, detail="No text extracted from PDF")
-        
-        chunks = chunk_text(extracted_text)
-        summary_text = build_summary_text(extracted_text)
-        all_documents = [summary_text] + chunks if summary_text else chunks
-        embeddings = generate_embeddings(all_documents)
-        
-        # Generate paper ID
-        paper_id = file.filename.replace(".pdf", "").replace(" ", "_")
-        
-        # Save chunks and embeddings locally
-        chunks_file = CHUNKS_DIR / f"{paper_id}.json"
-        with open(chunks_file, 'w') as f:
-            json.dump(chunks, f)
-        
-        embeddings_file = EMBEDDINGS_DIR / f"{paper_id}.npy"
-        np.save(embeddings_file, embeddings)
-
-        # Replace any older index entries for this paper before upserting fresh content
-        collection.delete(where={"paper_id": paper_id})
-
-        # Save summary and chunk texts to ChromaDB
-        ids = [f"{paper_id}-summary"] + [f"{paper_id}-{idx}" for idx in range(len(chunks))]
-        metadatas = [
-            {
-                "paper_id": paper_id,
-                "chunk_type": "summary",
-                "chunk_index": -1,
-                "filename": file.filename,
-            }
-        ] + [
-            {
-                "paper_id": paper_id,
-                "chunk_type": "chunk",
-                "chunk_index": idx,
-                "filename": file.filename,
-            }
-            for idx in range(len(chunks))
-        ]
-        documents = [summary_text] + chunks if summary_text else chunks
-        collection.upsert(
-            ids=ids,
-            metadatas=metadatas,
-            documents=documents,
-            embeddings=[emb.tolist() for emb in embeddings],
-        )
-        
-        # Update metadata
-        metadata = load_metadata()
-        metadata["papers"][paper_id] = {
-            "filename": file.filename,
-            "uploaded_at": datetime.now().isoformat(),
-            "num_chunks": len(chunks),
-            "num_indexed_documents": len(documents),
-            "text_length": len(extracted_text),
-            "embedding_dim": int(embeddings.shape[1])
-        }
-        save_metadata(metadata)
-        
-        return {
-            "status": "success",
-            "paper_id": paper_id,
-            "filename": file.filename,
-            "total_chunks": len(chunks),
-            "total_indexed_documents": len(documents),
-            "text_length": len(extracted_text),
-            "embedding_dimension": int(embeddings.shape[1]),
-            "message": f"Successfully processed {len(chunks)} chunks and {len(documents) - len(chunks)} summary document from {file.filename}"
-        }
+    results = []
+    metadata = load_metadata()
     
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+    for f in file:
+        try:
+            # Save uploaded file
+            file_path = PAPERS_DIR / f.filename
+            with open(file_path, "wb") as buffer:
+                content = await f.read()
+                buffer.write(content)
+            
+            # Process PDF
+            extracted_text = extract_text_from_pdf(str(file_path))
+            if not extracted_text or len(extracted_text.strip()) == 0:
+                results.append({
+                    "filename": f.filename,
+                    "status": "error",
+                    "detail": "No text extracted from PDF"
+                })
+                continue
+            
+            chunks = chunk_text(extracted_text)
+            summary_text = build_summary_text(extracted_text)
+            all_documents = [summary_text] + chunks if summary_text else chunks
+            embeddings = generate_embeddings(all_documents)
+            
+            # Generate paper ID
+            paper_id = f.filename.replace(".pdf", "").replace(" ", "_")
+            
+            # Save chunks and embeddings locally
+            chunks_file = CHUNKS_DIR / f"{paper_id}.json"
+            with open(chunks_file, 'w') as chunks_f:
+                json.dump(chunks, chunks_f)
+            
+            embeddings_file = EMBEDDINGS_DIR / f"{paper_id}.npy"
+            np.save(embeddings_file, embeddings)
+
+            # Replace any older index entries for this paper before upserting fresh content
+            collection.delete(where={"paper_id": paper_id})
+
+            # Save summary and chunk texts to ChromaDB
+            ids = [f"{paper_id}-summary"] + [f"{paper_id}-{idx}" for idx in range(len(chunks))]
+            metadatas = [
+                {
+                    "paper_id": paper_id,
+                    "chunk_type": "summary",
+                    "chunk_index": -1,
+                    "filename": f.filename,
+                }
+            ] + [
+                {
+                    "paper_id": paper_id,
+                    "chunk_type": "chunk",
+                    "chunk_index": idx,
+                    "filename": f.filename,
+                }
+                for idx in range(len(chunks))
+            ]
+            documents = [summary_text] + chunks if summary_text else chunks
+            collection.upsert(
+                ids=ids,
+                metadatas=metadatas,
+                documents=documents,
+                embeddings=[emb.tolist() for emb in embeddings],
+            )
+            
+            # Update metadata in memory dict
+            metadata["papers"][paper_id] = {
+                "filename": f.filename,
+                "uploaded_at": datetime.now().isoformat(),
+                "num_chunks": len(chunks),
+                "num_indexed_documents": len(documents),
+                "text_length": len(extracted_text),
+                "embedding_dim": int(embeddings.shape[1])
+            }
+            
+            results.append({
+                "status": "success",
+                "paper_id": paper_id,
+                "filename": f.filename,
+                "total_chunks": len(chunks),
+                "total_indexed_documents": len(documents),
+                "text_length": len(extracted_text),
+                "embedding_dimension": int(embeddings.shape[1]),
+                "message": f"Successfully processed {len(chunks)} chunks from {f.filename}"
+            })
+            
+        except Exception as e:
+            results.append({
+                "filename": f.filename,
+                "status": "error",
+                "detail": str(e)
+            })
+
+    # Save the updated metadata once after the loop
+    save_metadata(metadata)
+    
+    # Check if we had any successful uploads
+    success_count = sum(1 for r in results if r["status"] == "success")
+    if success_count == 0 and len(file) > 0:
+        # If all uploads failed, raise an exception or return error detail
+        first_error = results[0].get("detail", "Unknown error")
+        raise HTTPException(status_code=500, detail=f"All uploads failed. First error: {first_error}")
+        
+    return {
+        "status": "completed",
+        "processed_files_count": len(results),
+        "results": results
+    }
 
 @app.get("/papers/")
 def list_papers():

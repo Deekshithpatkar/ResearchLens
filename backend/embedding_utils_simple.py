@@ -1,4 +1,5 @@
-"""Embedding utilities with lightweight cleaning and a reliable lexical-semantic fallback."""
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 import re
 from pathlib import Path
@@ -65,31 +66,44 @@ def generate_embeddings(chunks: List[str], for_query: bool = False):
         return np.empty((0, 3072), dtype=np.float32)
 
     import os
+    import time
     import google.generativeai as genai
     from dotenv import load_dotenv
     load_dotenv()
     
     api_key = os.environ.get("GEMINI_API_KEY")
     if api_key:
-        try:
-            genai.configure(api_key=api_key)
-            task_type = "retrieval_query" if for_query else "retrieval_document"
-            res = genai.embed_content(
-                model="models/gemini-embedding-2",
-                content=chunks,
-                task_type=task_type
-            )
-            embeddings = res.get("embedding", [])
-            return np.array(embeddings, dtype=np.float32)
-        except Exception as e:
-            print(f"Warning: Gemini embedding generation failed ({e}), falling back to local model")
+        genai.configure(api_key=api_key)
+        task_type = "retrieval_query" if for_query else "retrieval_document"
+        
+        # Retry parameters for rate limits (429)
+        max_retries = 3
+        delay = 1.0
+        backoff_factor = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                res = genai.embed_content(
+                    model="models/gemini-embedding-2",
+                    content=chunks,
+                    task_type=task_type
+                )
+                embeddings = res.get("embedding", [])
+                return np.array(embeddings, dtype=np.float32)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    print(f"Error: Gemini embedding generation failed after {max_retries} attempts ({e}).")
+                    raise e
+                print(f"Warning: Gemini embedding failed ({e}). Retrying in {delay}s...")
+                time.sleep(delay)
+                delay *= backoff_factor
 
-    # Local sentence-transformers fallback
-    cleaned_chunks = [preprocess_text(chunk) for chunk in chunks]
-    cleaned_chunks = [chunk for chunk in cleaned_chunks if chunk]
-
-    if not cleaned_chunks:
-        cleaned_chunks = [" ".join(chunks)]
+    # Local sentence-transformers fallback (used only if API Key is not configured)
+    # Ensure every chunk has at least some placeholder text if it's empty to preserve list length
+    cleaned_chunks = []
+    for chunk in chunks:
+        cleaned = preprocess_text(chunk)
+        cleaned_chunks.append(cleaned if cleaned else "[empty]")
 
     if USE_SENTENCE_TRANSFORMERS:
         try:
