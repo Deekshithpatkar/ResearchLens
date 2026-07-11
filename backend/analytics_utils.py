@@ -3,10 +3,11 @@ import os
 import re
 import asyncio
 from typing import List, Dict
+import numpy as np
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-from backend.config import PROFILES_DIR, SCHEMA_VERSION, collection, DEFAULT_MODEL_NAME
+from backend.config import PROFILES_DIR, SCHEMA_VERSION, collection, DEFAULT_MODEL_NAME, EMBEDDINGS_DIR
 from backend.metadata_utils import load_metadata
 from backend.profile_utils import load_profile, extract_paper_profile, save_profile
 
@@ -248,3 +249,149 @@ Supplementary Answer:"""
             "fields_used": relevant_fields
         }
 
+async def execute_cluster_analysis() -> Dict:
+    """
+    Perform mathematical connected-components clustering of all uploaded papers,
+    and dynamically request Gemini to synthesize cluster names and descriptions.
+    """
+    metadata = load_metadata()
+    all_paper_ids = list(metadata.get("papers", {}).keys())
+
+    if not all_paper_ids:
+        return {
+            "clusters": [],
+            "warnings": ["No papers uploaded to cluster."]
+        }
+
+    # 1. Load global embeddings
+    paper_embeddings = {}
+    for pid in all_paper_ids:
+        emb_path = EMBEDDINGS_DIR / f"{pid}.npy"
+        if emb_path.exists():
+            try:
+                emb = np.load(emb_path)
+                if len(emb) > 0:
+                    paper_embeddings[pid] = emb[0]
+            except Exception as e:
+                print(f"Error loading embedding for {pid}: {e}")
+
+    pids = list(paper_embeddings.keys())
+    n = len(pids)
+    
+    if n == 0:
+        return {
+            "clusters": [],
+            "warnings": ["No valid paper embeddings found for clustering."]
+        }
+
+    # 2. Compute similarity matrix
+    similarity_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            v1 = paper_embeddings[pids[i]]
+            v2 = paper_embeddings[pids[j]]
+            norm1 = np.linalg.norm(v1)
+            norm2 = np.linalg.norm(v2)
+            if norm1 > 0 and norm2 > 0:
+                similarity_matrix[i, j] = np.dot(v1, v2) / (norm1 * norm2)
+            else:
+                similarity_matrix[i, j] = 0.0
+
+    # 3. Clustering (Connected components grouping)
+    # Cosine similarity threshold: 0.65 represents highly related topics
+    threshold = 0.65
+    visited = set()
+    raw_clusters = []
+
+    for i in range(n):
+        if pids[i] not in visited:
+            component = []
+            queue = [i]
+            visited.add(pids[i])
+            
+            while queue:
+                curr = queue.pop(0)
+                component.append(pids[curr])
+                
+                for neighbor in range(n):
+                    if pids[neighbor] not in visited:
+                        if similarity_matrix[curr, neighbor] >= threshold:
+                            visited.add(pids[neighbor])
+                            queue.append(neighbor)
+            raw_clusters.append(component)
+
+    # 4. Generate AI labels for each cluster dynamically
+    labeled_clusters = []
+    warnings = []
+    model = genai.GenerativeModel(DEFAULT_MODEL_NAME)
+
+    for idx, cluster_pids in enumerate(raw_clusters):
+        # Retrieve titles and objectives of all papers in this cluster
+        paper_details = []
+        for pid in cluster_pids:
+            profile = load_profile(pid)
+            if profile:
+                paper_details.append({
+                    "paper_id": pid,
+                    "title": profile.get("title", pid),
+                    "research_topics": profile.get("research_topics", []),
+                    "objective": profile.get("objective", "Not stated")
+                })
+            else:
+                paper_details.append({
+                    "paper_id": pid,
+                    "title": pid,
+                    "research_topics": [],
+                    "objective": "Not stated"
+                })
+
+        # Use Gemini to summarize the theme of this cluster
+        prompt = f"""You are a senior academic research synthesist.
+Analyze the following group of research papers and generate a descriptive theme/cluster name and summary.
+Your cluster name and summary MUST be domain-agnostic, representing whatever field the papers belong to (e.g. medicine, law, commerce, physics, ML, etc.).
+
+Paper Details in this Group:
+{json.dumps(paper_details, indent=2, ensure_ascii=False)}
+
+Instructions:
+1. Output ONLY a valid JSON object matching the schema below.
+2. Do not wrap the response in markdown code blocks.
+
+JSON Output Schema:
+{{
+  "name": "A descriptive, professional theme name (max 5 words) summarizing this group",
+  "description": "A 1-2 sentence description explaining the common research focus of this group"
+}}
+
+JSON Output:"""
+
+        cluster_name = f"Cluster {idx + 1}"
+        cluster_desc = "A grouped set of research documents."
+
+        try:
+            res = await model.generate_content_async(prompt)
+            raw_text = res.text.strip()
+            
+            # Clean JSON markdown wrappers if present
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                raw_text = re.sub(r"\s*```$", "", raw_text)
+            raw_text = raw_text.strip()
+            
+            data = json.loads(raw_text)
+            cluster_name = data.get("name", cluster_name)
+            cluster_desc = data.get("description", cluster_desc)
+        except Exception as e:
+            warnings.append(f"Could not generate AI label for cluster {idx + 1}: {e}")
+
+        labeled_clusters.append({
+            "cluster_id": idx + 1,
+            "name": cluster_name,
+            "description": cluster_desc,
+            "papers": cluster_pids
+        })
+
+    return {
+        "clusters": labeled_clusters,
+        "warnings": warnings
+    }

@@ -17,7 +17,7 @@ from backend.pdf_utils import extract_text_from_pdf
 from backend.text_chunker import chunk_text
 from backend.embedding_utils_simple import generate_embeddings
 from backend.profile_utils import extract_paper_profile
-from backend.analytics_utils import execute_global_analytics
+from backend.analytics_utils import execute_global_analytics, execute_cluster_analysis
 
 app = FastAPI(
     title="ResearchLens API",
@@ -254,6 +254,16 @@ def reprocess_profiles(background_tasks: BackgroundTasks, paper_ids: Optional[st
         "papers": triggered
     }
 
+@app.get("/analytics/clusters/")
+async def get_clusters():
+    """
+    Perform mathematical clustering and dynamic AI domain-agnostic labeling of the paper collection.
+    """
+    try:
+        results = await execute_cluster_analysis()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error performing cluster analysis: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
