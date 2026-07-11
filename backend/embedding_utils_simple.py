@@ -60,7 +60,7 @@ def _build_lexical_embedding(text: str, vocab=None, dim=384):
     return vector
 
 
-def generate_embeddings(chunks: List[str], for_query: bool = False):
+async def generate_embeddings(chunks: List[str], for_query: bool = False):
     """Generate embeddings for text chunks using Gemini's gemini-embedding-2 if available, otherwise falling back to sentence-transformers."""
     if not chunks:
         return np.empty((0, 3072), dtype=np.float32)
@@ -92,10 +92,19 @@ def generate_embeddings(chunks: List[str], for_query: bool = False):
                 return np.array(embeddings, dtype=np.float32)
             except Exception as e:
                 if attempt == max_retries - 1:
-                    print(f"Error: Gemini embedding generation failed after {max_retries} attempts ({e}).")
-                    raise e
-                print(f"Warning: Gemini embedding failed ({e}). Retrying in {delay}s...")
-                time.sleep(delay)
+                    print(f"Error: Gemini embedding generation failed after {max_retries} attempts ({e}). Falling back to local SentenceTransformer (Note: this may cause a ChromaDB dimension mismatch error if using a 3072-dim collection).")
+                    break # Break out of loop to fall through to local model fallback
+                
+                # Parse rate-limit wait time dynamically from the API error message
+                error_str = str(e)
+                sleep_time = delay
+                match = re.search(r"Please retry in (\d+\.?\d*)s", error_str)
+                if match:
+                    sleep_time = float(match.group(1)) + 1.0 # Add 1s buffer
+                
+                import asyncio
+                print(f"Warning: Gemini embedding failed. Retrying in {sleep_time}s...")
+                await asyncio.sleep(sleep_time)
                 delay *= backoff_factor
 
     # Local sentence-transformers fallback (used only if API Key is not configured)

@@ -3,9 +3,10 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 import json
 from datetime import datetime
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 import numpy as np
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import DATA_DIR, PAPERS_DIR, EMBEDDINGS_DIR, CHUNKS_DIR, collection
@@ -15,6 +16,8 @@ from backend.llm_utils import generate_response
 from backend.pdf_utils import extract_text_from_pdf
 from backend.text_chunker import chunk_text
 from backend.embedding_utils_simple import generate_embeddings
+from backend.profile_utils import extract_paper_profile
+from backend.analytics_utils import execute_global_analytics
 
 app = FastAPI(
     title="ResearchLens API",
@@ -46,7 +49,7 @@ def home():
     }
 
 @app.post("/upload-pdf/")
-async def upload_pdf(file: List[UploadFile] = File(...)):
+async def upload_pdf(file: List[UploadFile] = File(...), background_tasks: BackgroundTasks = None):
     """
     Upload and process multiple PDF files.
     Extracts text, generates chunks, and creates embeddings for each.
@@ -75,7 +78,7 @@ async def upload_pdf(file: List[UploadFile] = File(...)):
             chunks = chunk_text(extracted_text)
             summary_text = build_summary_text(extracted_text)
             all_documents = [summary_text] + chunks if summary_text else chunks
-            embeddings = generate_embeddings(all_documents)
+            embeddings = await generate_embeddings(all_documents)
             
             # Generate paper ID
             paper_id = f.filename.replace(".pdf", "").replace(" ", "_")
@@ -138,6 +141,10 @@ async def upload_pdf(file: List[UploadFile] = File(...)):
                 "message": f"Successfully processed {len(chunks)} chunks from {f.filename}"
             })
             
+            # Queue background task to extract structured paper profile
+            if background_tasks:
+                background_tasks.add_task(extract_paper_profile, paper_id, f.filename)
+            
         except Exception as e:
             results.append({
                 "filename": f.filename,
@@ -171,10 +178,10 @@ def list_papers():
     }
 
 @app.post("/search/")
-def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
+async def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
     """Perform semantic search over paper chunks."""
     try:
-        search_results = execute_semantic_search(query=query, paper_id=paper_id, top_k=top_k)
+        search_results = await execute_semantic_search(query=query, paper_id=paper_id, top_k=top_k)
         return search_results
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -184,14 +191,14 @@ def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
         raise HTTPException(status_code=500, detail=f"Error during search: {str(e)}")
 
 @app.post("/query/")
-def query_papers(query: str, paper_id: str = None, top_k: int = 8):
+async def query_papers(query: str, paper_id: str = None, top_k: int = 8):
     """
     Perform semantic search and generate a synthesized, polished response using Gemini.
     """
     try:
-        search_results = execute_semantic_search(query=query, paper_id=paper_id, top_k=top_k)
+        search_results = await execute_semantic_search(query=query, paper_id=paper_id, top_k=top_k)
         chunks = search_results.get("results", [])
-        answer = generate_response(query=query, chunks=chunks)
+        answer = await generate_response(query=query, chunks=chunks)
         
         return {
             "query": query,
@@ -204,6 +211,49 @@ def query_papers(query: str, paper_id: str = None, top_k: int = 8):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating RAG response: {str(e)}")
+
+@app.post("/analytics/")
+async def global_analytics(query: str, paper_ids: Optional[str] = Query(None)):
+    """
+    Perform global, multi-paper analytics comparison (Map-Reduce RAG) over paper profiles using query params.
+    Example: ?query=compare objectives&paper_ids=all OR ?query=compare objectives&paper_ids=ALBERT,BERT
+    """
+    try:
+        parsed_ids = None
+        if paper_ids:
+            parsed_ids = [pid.strip() for pid in paper_ids.split(",") if pid.strip()]
+        result = await execute_global_analytics(query=query, paper_ids=parsed_ids)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error executing analytics: {str(e)}")
+
+@app.post("/analytics/reprocess/")
+def reprocess_profiles(background_tasks: BackgroundTasks, paper_ids: Optional[str] = Query(None)):
+    """
+    Manually re-trigger structured paper profile extraction using query params.
+    Example: ?paper_ids=ALBERT,BERT OR empty to reprocess all papers.
+    """
+    metadata = load_metadata()
+    all_paper_ids = list(metadata.get("papers", {}).keys())
+
+    target_ids = all_paper_ids
+    if paper_ids:
+        target_ids = [pid.strip() for pid in paper_ids.split(",") if pid.strip()]
+        
+    target_ids = [pid for pid in target_ids if pid in all_paper_ids]
+
+    triggered = []
+    for pid in target_ids:
+        filename = metadata["papers"][pid].get("filename", f"{pid}.pdf")
+        background_tasks.add_task(extract_paper_profile, pid, filename)
+        triggered.append(pid)
+
+    return {
+        "status": "triggered",
+        "message": f"Queued profile extraction background tasks for {len(triggered)} papers.",
+        "papers": triggered
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

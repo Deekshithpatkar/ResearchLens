@@ -66,14 +66,14 @@ def keyword_overlap_score(query: str, text: str) -> float:
         return 0.0
     return len(q_tokens & t_tokens) / max(1, len(q_tokens))
 
-def execute_semantic_search(query: str, paper_id: str = None, top_k: int = 5) -> Dict:
+async def execute_semantic_search(query: str, paper_id: str = None, top_k: int = 5) -> Dict:
     """Core search logic, raises ValueError / KeyError instead of HTTPException"""
     if not query or len(query.strip()) == 0:
         raise ValueError("Query cannot be empty")
 
     cleaned_query = preprocess_text(query)
     expanded_query = expand_query(cleaned_query)
-    query_vectors = generate_embeddings([cleaned_query, expanded_query], for_query=True)
+    query_vectors = await generate_embeddings([cleaned_query, expanded_query], for_query=True)
     query_embedding = np.mean(query_vectors, axis=0)
 
     metadata = load_metadata()

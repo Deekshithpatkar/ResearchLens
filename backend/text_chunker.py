@@ -20,9 +20,6 @@ def preprocess_text_lines(text: str) -> List[str]:
 
     # Fix squished punctuation (e.g., "word.Sentence" -> "word. Sentence")
     text = re.sub(r'([.!?])([a-zA-Z])', r'\1 \2', text)
-    
-    # Fix squished lowercase/uppercase boundaries (e.g., "KaiserandIlya" -> "Kaiserand Ilya")
-    text = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', text)
 
     cleaned_lines = []
     for raw_line in text.splitlines():
