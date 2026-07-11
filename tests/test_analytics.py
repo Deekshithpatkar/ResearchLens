@@ -30,6 +30,48 @@ def test_determine_relevant_fields_fallback():
     assert "methodology" in fields
 
 @pytest.mark.anyio
+async def test_execute_timeline_generation():
+    from unittest.mock import patch, AsyncMock
+    
+    mock_metadata = {
+        "papers": {
+            "Paper_2017": {"filename": "Paper_2017.pdf"},
+            "Paper_2020": {"filename": "Paper_2020.pdf"},
+            "Paper_NoYear": {"filename": "Paper_NoYear.pdf"}
+        }
+    }
+    
+    mock_profiles = {
+        "Paper_2017": {"title": "Paper 2017", "publication_year": 2017, "authors": ["A"], "objective": "Obj 1", "profile_status": "completed"},
+        "Paper_2020": {"title": "Paper 2020", "publication_year": 2020, "authors": ["B"], "objective": "Obj 2", "profile_status": "completed"},
+        "Paper_NoYear": {"title": "Paper NoYear", "publication_year": None, "authors": ["C"], "objective": "Obj 3", "profile_status": "completed"}
+    }
+    
+    with patch("backend.analytics_utils.load_metadata", return_value=mock_metadata), \
+         patch("backend.analytics_utils.load_profile", side_effect=lambda pid: mock_profiles.get(pid)), \
+         patch("google.generativeai.GenerativeModel") as mock_model_class:
+         
+        mock_response = AsyncMock()
+        mock_response.text = "Mocked Evolutionary Overview Statement."
+        
+        mock_model = AsyncMock()
+        mock_model.generate_content_async.return_value = mock_response
+        mock_model_class.return_value = mock_model
+        
+        from backend.analytics_utils import execute_timeline_generation
+        result = await execute_timeline_generation()
+        
+        assert "timeline" in result
+        assert "overview" in result
+        assert result["overview"] == "Mocked Evolutionary Overview Statement."
+        
+        timeline = result["timeline"]
+        assert len(timeline) == 3
+        assert timeline[0]["paper_id"] == "Paper_2017"
+        assert timeline[1]["paper_id"] == "Paper_2020"
+        assert timeline[2]["paper_id"] == "Paper_NoYear"
+
+@pytest.mark.anyio
 async def test_execute_cluster_analysis_grouping():
     import numpy as np
     from unittest.mock import patch, AsyncMock

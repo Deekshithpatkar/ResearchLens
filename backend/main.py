@@ -17,7 +17,7 @@ from backend.pdf_utils import extract_text_from_pdf
 from backend.text_chunker import chunk_text
 from backend.embedding_utils_simple import generate_embeddings
 from backend.profile_utils import extract_paper_profile
-from backend.analytics_utils import execute_global_analytics, execute_cluster_analysis
+from backend.analytics_utils import execute_global_analytics, execute_cluster_analysis, execute_timeline_generation
 
 app = FastAPI(
     title="ResearchLens API",
@@ -264,6 +264,17 @@ async def get_clusters():
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error performing cluster analysis: {str(e)}")
+
+@app.get("/analytics/timeline/")
+async def get_timeline():
+    """
+    Generate a chronological timeline of all completed research papers and a synthesized AI domain overview.
+    """
+    try:
+        results = await execute_timeline_generation()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating research timeline: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

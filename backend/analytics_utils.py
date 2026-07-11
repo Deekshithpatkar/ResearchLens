@@ -395,3 +395,79 @@ JSON Output:"""
         "clusters": labeled_clusters,
         "warnings": warnings
     }
+
+async def execute_timeline_generation() -> Dict:
+    """
+    Load all completed paper profiles, sort them chronologically by publication_year,
+    and generate a high-level AI overview of the field's evolution.
+    """
+    metadata = load_metadata()
+    all_paper_ids = list(metadata.get("papers", {}).keys())
+
+    if not all_paper_ids:
+        return {
+            "timeline": [],
+            "overview": "No papers uploaded to generate a timeline.",
+            "warnings": ["No papers available in the library."]
+        }
+
+    timeline_items = []
+    warnings = []
+
+    # 1. Load profiles and extract year/objective
+    for pid in all_paper_ids:
+        profile = load_profile(pid)
+        if not profile:
+            warnings.append(f"Paper '{pid}' is missing its structured profile.")
+            continue
+            
+        status = profile.get("profile_status", "failed")
+        if status != "completed":
+            warnings.append(f"Paper '{pid}' is not yet processed (status: {status}).")
+            continue
+
+        year = profile.get("publication_year")
+        timeline_items.append({
+            "paper_id": pid,
+            "title": profile.get("title", pid),
+            "publication_year": year,
+            "authors": profile.get("authors", []),
+            "objective": profile.get("objective", "Not stated")
+        })
+
+    if not timeline_items:
+        return {
+            "timeline": [],
+            "overview": "No completed paper profiles are currently available.",
+            "warnings": warnings
+        }
+
+    # 2. Sort chronologically: group papers with years first, sorted, then papers without years
+    papers_with_year = [p for p in timeline_items if p["publication_year"] is not None]
+    papers_without_year = [p for p in timeline_items if p["publication_year"] is None]
+
+    # Sort ascending by year
+    papers_with_year.sort(key=lambda x: x["publication_year"])
+    sorted_timeline = papers_with_year + papers_without_year
+
+    # 3. Call Gemini to synthesize a brief evolutionary overview
+    overview_text = "Timeline generated successfully."
+    try:
+        model = genai.GenerativeModel(DEFAULT_MODEL_NAME)
+        prompt = f"""You are a senior academic research synthesist.
+Analyze the following chronological timeline of research papers and write a 2-3 sentence overview summarizing the evolutionary trajectory of this research field.
+
+Chronological Timeline:
+{json.dumps(sorted_timeline, indent=2, ensure_ascii=False)}
+
+Overview:"""
+        res = await model.generate_content_async(prompt)
+        overview_text = res.text.strip()
+    except Exception as e:
+        warnings.append(f"Could not generate AI timeline overview: {e}")
+
+    return {
+        "timeline": sorted_timeline,
+        "overview": overview_text,
+        "warnings": warnings
+    }
