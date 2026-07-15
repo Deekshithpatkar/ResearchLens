@@ -471,3 +471,148 @@ Overview:"""
         "overview": overview_text,
         "warnings": warnings
     }
+
+async def execute_hierarchical_clustering() -> Dict:
+    """
+    Perform Agglomerative Hierarchical Clustering using average linkage,
+    and dynamically request Gemini to label the resulting clusters.
+    """
+    metadata = load_metadata()
+    all_paper_ids = list(metadata.get("papers", {}).keys())
+
+    if not all_paper_ids:
+        return {
+            "clusters": [],
+            "warnings": ["No papers uploaded to cluster."]
+        }
+
+    # Load global embeddings
+    paper_embeddings = {}
+    for pid in all_paper_ids:
+        emb_path = EMBEDDINGS_DIR / f"{pid}.npy"
+        if emb_path.exists():
+            try:
+                emb = np.load(emb_path)
+                if len(emb) > 0:
+                    paper_embeddings[pid] = emb[0]
+            except Exception as e:
+                print(f"Error loading embedding for {pid}: {e}")
+
+    pids = list(paper_embeddings.keys())
+    n = len(pids)
+    
+    if n == 0:
+        return {
+            "clusters": [],
+            "warnings": ["No valid paper embeddings found for clustering."]
+        }
+
+    # Group papers into hierarchy
+    # We start with each paper as its own cluster
+    current_clusters = [[pid] for pid in pids]
+
+    def get_average_linkage_similarity(c1, c2):
+        sims = []
+        for p1 in c1:
+            for p2 in c2:
+                v1 = paper_embeddings[p1]
+                v2 = paper_embeddings[p2]
+                norm1 = np.linalg.norm(v1)
+                norm2 = np.linalg.norm(v2)
+                if norm1 > 0 and norm2 > 0:
+                    sims.append(np.dot(v1, v2) / (norm1 * norm2))
+                else:
+                    sims.append(0.0)
+        return np.mean(sims) if sims else 0.0
+
+    # Merge until a similarity threshold is hit (e.g. 0.65)
+    min_similarity_threshold = 0.65
+    
+    while len(current_clusters) > 1:
+        best_sim = -1.0
+        merge_indices = (0, 0)
+        
+        for i in range(len(current_clusters)):
+            for j in range(i + 1, len(current_clusters)):
+                sim = get_average_linkage_similarity(current_clusters[i], current_clusters[j])
+                if sim > best_sim:
+                    best_sim = sim
+                    merge_indices = (i, j)
+                    
+        if best_sim >= min_similarity_threshold:
+            i, j = merge_indices
+            current_clusters[i] = current_clusters[i] + current_clusters[j]
+            current_clusters.pop(j)
+        else:
+            break
+
+    # Ask Gemini to label each cluster
+    labeled_clusters = []
+    warnings = []
+    model = genai.GenerativeModel(DEFAULT_MODEL_NAME)
+
+    for idx, cluster_pids in enumerate(current_clusters):
+        paper_details = []
+        for pid in cluster_pids:
+            profile = load_profile(pid)
+            if profile:
+                paper_details.append({
+                    "paper_id": pid,
+                    "title": profile.get("title", pid),
+                    "research_topics": profile.get("research_topics", []),
+                    "objective": profile.get("objective", "Not stated")
+                })
+            else:
+                paper_details.append({
+                    "paper_id": pid,
+                    "title": pid,
+                    "research_topics": [],
+                    "objective": "Not stated"
+                })
+
+        prompt = f"""You are a senior academic research synthesist.
+Analyze the following group of research papers formed via Hierarchical Clustering and generate a theme/cluster name and summary.
+Your cluster name and summary MUST be domain-agnostic.
+
+Paper Details in this Group:
+{json.dumps(paper_details, indent=2, ensure_ascii=False)}
+
+Instructions:
+1. Output ONLY a valid JSON object matching the schema below.
+2. Do not wrap the response in markdown code blocks.
+
+JSON Output Schema:
+{{
+  "name": "A descriptive theme name (max 5 words) summarizing this hierarchical cluster",
+  "description": "A 1-2 sentence description explaining the common research focus of this hierarchical group"
+}}
+
+JSON Output:"""
+
+        cluster_name = f"Hierarchical Cluster {idx + 1}"
+        cluster_desc = "A hierarchically grouped set of research documents."
+
+        try:
+            res = await model.generate_content_async(prompt)
+            raw_text = res.text.strip()
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                raw_text = re.sub(r"\s*```$", "", raw_text)
+            raw_text = raw_text.strip()
+            data = json.loads(raw_text)
+            cluster_name = data.get("name", cluster_name)
+            cluster_desc = data.get("description", cluster_desc)
+        except Exception as e:
+            warnings.append(f"Could not generate AI label for hierarchical cluster {idx + 1}: {e}")
+
+        labeled_clusters.append({
+            "cluster_id": idx + 1,
+            "name": cluster_name,
+            "description": cluster_desc,
+            "papers": cluster_pids
+        })
+
+    return {
+        "clusters": labeled_clusters,
+        "warnings": warnings
+    }

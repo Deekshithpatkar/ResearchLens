@@ -17,7 +17,7 @@ from backend.pdf_utils import extract_text_from_pdf
 from backend.text_chunker import chunk_text
 from backend.embedding_utils_simple import generate_embeddings
 from backend.profile_utils import extract_paper_profile
-from backend.analytics_utils import execute_global_analytics, execute_cluster_analysis, execute_timeline_generation
+from backend.analytics_utils import execute_global_analytics, execute_cluster_analysis, execute_timeline_generation, execute_hierarchical_clustering
 
 app = FastAPI(
     title="ResearchLens API",
@@ -43,8 +43,12 @@ def home():
         "endpoints": [
             "POST /upload-pdf/",
             "GET /papers/",
-            "POST /search/",
-            "POST /query/"
+            "POST /query/",
+            "POST /analytics/",
+            "POST /analytics/reprocess/",
+            "GET /analytics/clusters/cosine/",
+            "GET /analytics/clusters/hierarchical/",
+            "GET /analytics/timeline/"
         ]
     }
 
@@ -177,19 +181,6 @@ def list_papers():
         "papers": metadata.get("papers", {})
     }
 
-@app.post("/search/")
-async def semantic_search(query: str, paper_id: str = None, top_k: int = 5):
-    """Perform semantic search over paper chunks."""
-    try:
-        search_results = await execute_semantic_search(query=query, paper_id=paper_id, top_k=top_k)
-        return search_results
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during search: {str(e)}")
-
 @app.post("/query/")
 async def query_papers(query: str, paper_id: str = None, top_k: int = 8):
     """
@@ -254,8 +245,8 @@ def reprocess_profiles(background_tasks: BackgroundTasks, paper_ids: Optional[st
         "papers": triggered
     }
 
-@app.get("/analytics/clusters/")
-async def get_clusters():
+@app.get("/analytics/clusters/cosine/")
+async def get_cosine_clusters():
     """
     Perform mathematical clustering and dynamic AI domain-agnostic labeling of the paper collection.
     """
@@ -264,6 +255,17 @@ async def get_clusters():
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error performing cluster analysis: {str(e)}")
+
+@app.get("/analytics/clusters/hierarchical/")
+async def get_hierarchical_clusters():
+    """
+    Perform Agglomerative Hierarchical Clustering and dynamic AI domain-agnostic labeling.
+    """
+    try:
+        results = await execute_hierarchical_clustering()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error performing hierarchical cluster analysis: {str(e)}")
 
 @app.get("/analytics/timeline/")
 async def get_timeline():
