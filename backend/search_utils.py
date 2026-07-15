@@ -66,7 +66,7 @@ def keyword_overlap_score(query: str, text: str) -> float:
         return 0.0
     return len(q_tokens & t_tokens) / max(1, len(q_tokens))
 
-async def execute_semantic_search(query: str, paper_id: str = None, top_k: int = 5) -> Dict:
+async def execute_semantic_search(query: str, paper_id: str = None, top_k: int = 5, user_id: str = None) -> Dict:
     """Core search logic, raises ValueError / KeyError instead of HTTPException"""
     if not query or len(query.strip()) == 0:
         raise ValueError("Query cannot be empty")
@@ -76,7 +76,7 @@ async def execute_semantic_search(query: str, paper_id: str = None, top_k: int =
     query_vectors = await generate_embeddings([cleaned_query, expanded_query], for_query=True)
     query_embedding = np.mean(query_vectors, axis=0)
 
-    metadata = load_metadata()
+    metadata = load_metadata(user_id=user_id)
     papers_to_search = {paper_id: metadata["papers"][paper_id]} if paper_id else metadata.get("papers", {})
 
     if paper_id and paper_id not in papers_to_search:
@@ -87,8 +87,18 @@ async def execute_semantic_search(query: str, paper_id: str = None, top_k: int =
         "n_results": max(top_k * 5, 12),
         "include": ["metadatas", "documents", "distances"],
     }
+    
+    # Configure user isolation filters
+    filters = []
+    if user_id:
+        filters.append({"user_id": user_id})
     if paper_id:
-        query_kwargs["where"] = {"paper_id": paper_id}
+        filters.append({"paper_id": paper_id})
+        
+    if len(filters) == 1:
+        query_kwargs["where"] = filters[0]
+    elif len(filters) > 1:
+        query_kwargs["where"] = {"$and": filters}
 
     query_results = collection.query(**query_kwargs)
 

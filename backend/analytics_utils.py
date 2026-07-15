@@ -2,12 +2,12 @@ import json
 import os
 import re
 import asyncio
-from typing import List, Dict
+from typing import List, Dict, Optional
 import numpy as np
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-from backend.config import PROFILES_DIR, SCHEMA_VERSION, collection, DEFAULT_MODEL_NAME, EMBEDDINGS_DIR
+from backend.config import PROFILES_DIR, SCHEMA_VERSION, collection, DEFAULT_MODEL_NAME, EMBEDDINGS_DIR, get_user_embeddings_dir
 from backend.metadata_utils import load_metadata
 from backend.profile_utils import load_profile, extract_paper_profile, save_profile
 
@@ -71,12 +71,12 @@ JSON Output:"""
         
     return ALLOWED_SCHEMA_KEYS
 
-async def execute_global_analytics(query: str, paper_ids: List[str] = None) -> Dict:
+async def execute_global_analytics(query: str, paper_ids: List[str] = None, user_id: str = None) -> Dict:
     """
     Execute global query analysis across a subset or all papers in the database.
     Performs lazy schema migrations, field routing, and output coverage checking.
     """
-    metadata = load_metadata()
+    metadata = load_metadata(user_id=user_id)
     all_paper_ids = list(metadata.get("papers", {}).keys())
 
     # Resolve target paper_ids
@@ -90,14 +90,14 @@ async def execute_global_analytics(query: str, paper_ids: List[str] = None) -> D
 
     # Process and load profiles
     for pid in target_ids:
-        profile = load_profile(pid)
+        profile = load_profile(pid, user_id=user_id)
         paper_info = metadata["papers"][pid]
         filename = paper_info.get("filename", f"{pid}.pdf")
 
         if not profile:
             # Profile doesn't exist, trigger background generation
             warnings.append(f"Paper '{pid}' profile was missing. Triggering extraction task.")
-            t = asyncio.create_task(extract_paper_profile(pid, filename))
+            t = asyncio.create_task(extract_paper_profile(pid, filename, user_id=user_id))
             _running_tasks.add(t)
             t.add_done_callback(_running_tasks.discard)
             continue
@@ -120,9 +120,9 @@ async def execute_global_analytics(query: str, paper_ids: List[str] = None) -> D
                 warnings.append(f"Paper '{pid}' has an outdated schema. Triggering lazy migration in the background.")
                 # Mark as migrating to prevent duplicate queues
                 profile["profile_status"] = "migrating"
-                save_profile(pid, profile)
+                save_profile(pid, profile, user_id=user_id)
                 # Launch background update with force_reextract=True to bypass migrations guard
-                t = asyncio.create_task(extract_paper_profile(pid, filename, force_reextract=True))
+                t = asyncio.create_task(extract_paper_profile(pid, filename, force_reextract=True, user_id=user_id))
                 _running_tasks.add(t)
                 t.add_done_callback(_running_tasks.discard)
             
@@ -249,12 +249,12 @@ Supplementary Answer:"""
             "fields_used": relevant_fields
         }
 
-async def execute_cluster_analysis() -> Dict:
+async def execute_cluster_analysis(user_id: str = None) -> Dict:
     """
     Perform mathematical connected-components clustering of all uploaded papers,
     and dynamically request Gemini to synthesize cluster names and descriptions.
     """
-    metadata = load_metadata()
+    metadata = load_metadata(user_id=user_id)
     all_paper_ids = list(metadata.get("papers", {}).keys())
 
     if not all_paper_ids:
@@ -266,7 +266,10 @@ async def execute_cluster_analysis() -> Dict:
     # 1. Load global embeddings
     paper_embeddings = {}
     for pid in all_paper_ids:
-        emb_path = EMBEDDINGS_DIR / f"{pid}.npy"
+        if user_id:
+            emb_path = get_user_embeddings_dir(user_id) / f"{pid}.npy"
+        else:
+            emb_path = EMBEDDINGS_DIR / f"{pid}.npy"
         if emb_path.exists():
             try:
                 emb = np.load(emb_path)
@@ -329,7 +332,7 @@ async def execute_cluster_analysis() -> Dict:
         # Retrieve titles and objectives of all papers in this cluster
         paper_details = []
         for pid in cluster_pids:
-            profile = load_profile(pid)
+            profile = load_profile(pid, user_id=user_id)
             if profile:
                 paper_details.append({
                     "paper_id": pid,
@@ -396,12 +399,12 @@ JSON Output:"""
         "warnings": warnings
     }
 
-async def execute_timeline_generation() -> Dict:
+async def execute_timeline_generation(user_id: str = None) -> Dict:
     """
     Load all completed paper profiles, sort them chronologically by publication_year,
     and generate a high-level AI overview of the field's evolution.
     """
-    metadata = load_metadata()
+    metadata = load_metadata(user_id=user_id)
     all_paper_ids = list(metadata.get("papers", {}).keys())
 
     if not all_paper_ids:
@@ -416,7 +419,7 @@ async def execute_timeline_generation() -> Dict:
 
     # 1. Load profiles and extract year/objective
     for pid in all_paper_ids:
-        profile = load_profile(pid)
+        profile = load_profile(pid, user_id=user_id)
         if not profile:
             warnings.append(f"Paper '{pid}' is missing its structured profile.")
             continue
@@ -472,12 +475,12 @@ Overview:"""
         "warnings": warnings
     }
 
-async def execute_hierarchical_clustering() -> Dict:
+async def execute_hierarchical_clustering(user_id: str = None) -> Dict:
     """
     Perform Agglomerative Hierarchical Clustering using average linkage,
     and dynamically request Gemini to label the resulting clusters.
     """
-    metadata = load_metadata()
+    metadata = load_metadata(user_id=user_id)
     all_paper_ids = list(metadata.get("papers", {}).keys())
 
     if not all_paper_ids:
@@ -489,7 +492,10 @@ async def execute_hierarchical_clustering() -> Dict:
     # Load global embeddings
     paper_embeddings = {}
     for pid in all_paper_ids:
-        emb_path = EMBEDDINGS_DIR / f"{pid}.npy"
+        if user_id:
+            emb_path = get_user_embeddings_dir(user_id) / f"{pid}.npy"
+        else:
+            emb_path = EMBEDDINGS_DIR / f"{pid}.npy"
         if emb_path.exists():
             try:
                 emb = np.load(emb_path)
@@ -554,7 +560,7 @@ async def execute_hierarchical_clustering() -> Dict:
     for idx, cluster_pids in enumerate(current_clusters):
         paper_details = []
         for pid in cluster_pids:
-            profile = load_profile(pid)
+            profile = load_profile(pid, user_id=user_id)
             if profile:
                 paper_details.append({
                     "paper_id": pid,

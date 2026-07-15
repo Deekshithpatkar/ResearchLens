@@ -2,9 +2,9 @@
 # Phase 1: Core PDF processing and API infrastructure
 
 # Web Framework
-fastapi==0.104.1
+fastapi>=0.139.0
 uvicorn==0.24.0
-starlette==0.27.0
+# starlette is managed by fastapi
 
 # PDF Processing  
 pdfplumber==0.10.3
@@ -31,4 +31,11 @@ requests==2.31.0
 chromadb==1.5.9
 
 # Phase 2: LLM Integration
-google-generativeai>=0.8.0
+google-generativeai>=0.8.0
+
+# Phase 3: Auth & Database Isolation
+SQLAlchemy>=2.0.51
+pg8000==1.31.2
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.2
+email-validator>=2.3.0

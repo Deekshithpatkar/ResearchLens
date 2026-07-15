@@ -21,6 +21,43 @@ EMBEDDINGS_DIR.mkdir(exist_ok=True)
 CHUNKS_DIR.mkdir(exist_ok=True)
 PROFILES_DIR.mkdir(exist_ok=True)
 
+# User-specific directory helpers
+def get_user_data_dir(user_id: str) -> Path:
+    user_dir = DATA_DIR / "users" / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
+
+def get_user_papers_dir(user_id: str) -> Path:
+    d = get_user_data_dir(user_id) / "pdfs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_user_embeddings_dir(user_id: str) -> Path:
+    d = get_user_data_dir(user_id) / "embeddings"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_user_chunks_dir(user_id: str) -> Path:
+    d = get_user_data_dir(user_id) / "chunks"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_user_profiles_dir(user_id: str) -> Path:
+    d = get_user_data_dir(user_id) / "profiles"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_user_timelines_dir(user_id: str) -> Path:
+    d = get_user_data_dir(user_id) / "timelines"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_user_clusters_dir(user_id: str) -> Path:
+    d = get_user_data_dir(user_id) / "clusters"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 CHROMA_DIR = DATA_DIR / "chroma"
 CHROMA_DIR.mkdir(exist_ok=True)
 

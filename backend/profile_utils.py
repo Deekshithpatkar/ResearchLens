@@ -10,7 +10,8 @@ import numpy as np
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-from backend.config import CHUNKS_DIR, PROFILES_DIR, SCHEMA_VERSION, get_extraction_semaphore, DEFAULT_MODEL_NAME
+from typing import Optional
+from backend.config import CHUNKS_DIR, PROFILES_DIR, SCHEMA_VERSION, get_extraction_semaphore, DEFAULT_MODEL_NAME, get_user_profiles_dir, get_user_chunks_dir
 
 # Ensure environment variables are loaded
 load_dotenv()
@@ -20,15 +21,21 @@ api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
-def save_profile(paper_id: str, profile_data: dict):
-    """Save paper profile locally as JSON."""
-    profile_path = PROFILES_DIR / f"{paper_id}.json"
+def save_profile(paper_id: str, profile_data: dict, user_id: Optional[str] = None):
+    """Save paper profile locally as JSON, optionally scoped by user."""
+    if user_id:
+        profile_path = get_user_profiles_dir(user_id) / f"{paper_id}.json"
+    else:
+        profile_path = PROFILES_DIR / f"{paper_id}.json"
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump(profile_data, f, indent=2, ensure_ascii=False)
 
-def load_profile(paper_id: str) -> dict:
-    """Load paper profile locally."""
-    profile_path = PROFILES_DIR / f"{paper_id}.json"
+def load_profile(paper_id: str, user_id: Optional[str] = None) -> dict:
+    """Load paper profile locally, optionally scoped by user."""
+    if user_id:
+        profile_path = get_user_profiles_dir(user_id) / f"{paper_id}.json"
+    else:
+        profile_path = PROFILES_DIR / f"{paper_id}.json"
     if not profile_path.exists():
         return None
     with open(profile_path, "r", encoding="utf-8") as f:
@@ -61,7 +68,7 @@ def parse_with_repair(raw_text: str) -> dict:
             # Re-raise original error to trigger secondary retry
             raise e
 
-async def extract_paper_profile(paper_id: str, file_name: str, force_reextract: bool = False):
+async def extract_paper_profile(paper_id: str, file_name: str, force_reextract: bool = False, user_id: Optional[str] = None):
     """
     Background worker task to extract structured paper profiles from raw chunks.
     Throttled by a semaphore to prevent API rate limits.
@@ -69,7 +76,7 @@ async def extract_paper_profile(paper_id: str, file_name: str, force_reextract: 
     semaphore = get_extraction_semaphore()
     async with semaphore:
         # Check current status; avoid duplicate background extractions
-        current = load_profile(paper_id)
+        current = load_profile(paper_id, user_id=user_id)
         if not force_reextract and current and current.get("profile_status") in ("processing", "migrating"):
             print(f"Skipping redundant profile extraction for {paper_id} (status: {current.get('profile_status')})")
             return
@@ -82,9 +89,13 @@ async def extract_paper_profile(paper_id: str, file_name: str, force_reextract: 
             "error": None,
             "filename": file_name,
             "uploaded_at": datetime.now().isoformat()
-        })
+        }, user_id=user_id)
 
-        chunks_file = CHUNKS_DIR / f"{paper_id}.json"
+        if user_id:
+            chunks_file = get_user_chunks_dir(user_id) / f"{paper_id}.json"
+        else:
+            chunks_file = CHUNKS_DIR / f"{paper_id}.json"
+
         if not chunks_file.exists():
             save_profile(paper_id, {
                 "paper_id": paper_id,
@@ -92,7 +103,7 @@ async def extract_paper_profile(paper_id: str, file_name: str, force_reextract: 
                 "profile_status": "failed",
                 "filename": file_name,
                 "error": "Chunks file not found on disk"
-            })
+            }, user_id=user_id)
             return
 
         try:
@@ -271,7 +282,7 @@ JSON Output:"""
             profile_data["filename"] = file_name
             profile_data["uploaded_at"] = datetime.now().isoformat()
 
-            save_profile(paper_id, profile_data)
+            save_profile(paper_id, profile_data, user_id=user_id)
             print(f"Successfully generated structured profile for {paper_id}")
 
         except Exception as e:
@@ -283,4 +294,4 @@ JSON Output:"""
                 "filename": file_name,
                 "error": str(e),
                 "uploaded_at": datetime.now().isoformat()
-            })
+            }, user_id=user_id)

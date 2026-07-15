@@ -489,3 +489,31 @@ This project showcases:
 * System Design
 
 These are highly relevant skills for AI, Backend, and Software Engineering roles.
+
+---
+
+# Phase 3 Update: Secure User Authentication & Data Isolation
+
+ResearchLens now supports secure user authentication and absolute user-level data isolation.
+
+## Security Architecture
+
+1. **Authentication Flow**:
+   - Users register via `POST /auth/register` (using hashed passwords via `bcrypt`).
+   - Users login via `POST /auth/login` to obtain a JWT token.
+   - All protected endpoints extract user identity via `get_current_user()` dependency.
+
+2. **Data Isolation**:
+   - **PostgreSQL Database**: Persistent metadata for users and uploaded papers.
+   - **ChromaDB Filtering**: All search queries are scoped using `user_id` metadata filters: `where={"user_id": current_user.id}`.
+   - **Path Validation**: Files are uploaded and stored within path-validated directories under `data/users/<user_id>/`.
+
+3. **Legacy Migration**:
+   - On server startup, legacy unowned paper files are automatically migrated to a disabled system user `legacy@researchlens.local` and metadata is updated.
+
+## Running Tests
+
+To verify user data isolation, run the test suite:
+```bash
+.\venv\Scripts\python.exe -m pytest tests/test_auth_isolation.py -s
+```
