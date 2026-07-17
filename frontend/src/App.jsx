@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { 
   authAPI, 
   papersAPI, 
-  analyticsAPI 
+  analyticsAPI,
+  chatsAPI 
 } from "./api";
 import { 
   BookOpen, 
@@ -170,12 +171,16 @@ export default function App() {
   const [chatQuery, setChatQuery] = useState("");
   const [chatLog, setChatLog] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [ragSessions, setRagSessions] = useState([]);
+  const [selectedRagSessionId, setSelectedRagSessionId] = useState("");
 
   // Analytics State
   const [analyticsQuery, setAnalyticsQuery] = useState("");
   const [selectedPapersForAnalytics, setSelectedPapersForAnalytics] = useState([]);
   const [analyticsChatLog, setAnalyticsChatLog] = useState([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsSessions, setAnalyticsSessions] = useState([]);
+  const [selectedAnalyticsSessionId, setSelectedAnalyticsSessionId] = useState("");
 
   // Timeline State
   const [timelineData, setTimelineData] = useState(null);
@@ -189,10 +194,12 @@ export default function App() {
   const chatEndRef = useRef(null);
   const analyticsEndRef = useRef(null);
 
-  // Load papers on authentication
+  // Load papers and sessions on authentication
   useEffect(() => {
     if (token) {
       fetchPapers();
+      fetchSessions("rag");
+      fetchSessions("analytics");
     }
   }, [token]);
 
@@ -204,6 +211,69 @@ export default function App() {
   useEffect(() => {
     analyticsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [analyticsChatLog]);
+
+  const fetchSessions = async (type) => {
+    try {
+      const data = await chatsAPI.list(type);
+      if (type === "rag") {
+        setRagSessions(data);
+      } else if (type === "analytics") {
+        setAnalyticsSessions(data);
+      }
+    } catch (err) {
+      console.error(`Failed to fetch ${type} sessions:`, err);
+    }
+  };
+
+  const loadSessionMessages = async (sessionId, type) => {
+    try {
+      const messages = await chatsAPI.getMessages(sessionId);
+      const formatted = messages.map(msg => ({
+        role: msg.role,
+        text: msg.content,
+        chunks: msg.chunks || []
+      }));
+      if (type === "rag") {
+        setChatLog(formatted);
+        setSelectedRagSessionId(sessionId);
+      } else if (type === "analytics") {
+        setAnalyticsChatLog(formatted);
+        setSelectedAnalyticsSessionId(sessionId);
+      }
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId, type, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this chat session?")) return;
+    try {
+      await chatsAPI.delete(sessionId);
+      fetchSessions(type);
+      if (type === "rag" && selectedRagSessionId === sessionId) {
+        setSelectedRagSessionId("");
+        setChatLog([]);
+      } else if (type === "analytics" && selectedAnalyticsSessionId === sessionId) {
+        setSelectedAnalyticsSessionId("");
+        setAnalyticsChatLog([]);
+      }
+    } catch (err) {
+      alert("Failed to delete chat session");
+    }
+  };
+
+  const handleNewChat = (type) => {
+    if (type === "rag") {
+      setSelectedRagSessionId("");
+      setChatLog([]);
+      setChatQuery("");
+    } else if (type === "analytics") {
+      setSelectedAnalyticsSessionId("");
+      setAnalyticsChatLog([]);
+      setAnalyticsQuery("");
+    }
+  };
 
   const fetchPapers = async () => {
     setLoadingPapers(true);
@@ -307,7 +377,9 @@ export default function App() {
     try {
       const data = await papersAPI.query(
         currentQuery,
-        selectedPaperForChat || null
+        selectedPaperForChat || null,
+        8,
+        selectedRagSessionId || null
       );
       const assistantMessage = {
         role: "assistant",
@@ -315,6 +387,10 @@ export default function App() {
         chunks: data.chunks || [],
       };
       setChatLog((prev) => [...prev, assistantMessage]);
+      if (data.session_id && data.session_id !== selectedRagSessionId) {
+        setSelectedRagSessionId(data.session_id);
+        fetchSessions("rag");
+      }
     } catch (err) {
       const errorMessage = {
         role: "error",
@@ -356,7 +432,9 @@ export default function App() {
     try {
       const data = await analyticsAPI.global(
         finalQuery,
-        selectedPapersForAnalytics
+        selectedPapersForAnalytics,
+        currentQuery,
+        selectedAnalyticsSessionId || null
       );
       const assistantMessage = {
         role: "assistant",
@@ -365,6 +443,10 @@ export default function App() {
         warnings: data.warnings || [],
       };
       setAnalyticsChatLog((prev) => [...prev, assistantMessage]);
+      if (data.session_id && data.session_id !== selectedAnalyticsSessionId) {
+        setSelectedAnalyticsSessionId(data.session_id);
+        fetchSessions("analytics");
+      }
     } catch (err) {
       const errorMessage = {
         role: "error",
@@ -714,11 +796,48 @@ export default function App() {
 
         {/* Semantic RAG Chat Tab */}
         {activeTab === "chat" && (
-          <div className="flex-1 flex min-h-0">
-            <div className="flex-1 flex flex-col p-8 max-w-4xl mx-auto w-full">
-              
+          <div className="flex-1 flex gap-6 p-8 w-full max-w-7xl mx-auto h-[calc(100vh-80px)] overflow-hidden">
+            {/* RAG Chat Sessions Sidebar */}
+            <div className="w-64 shrink-0 flex flex-col glass-panel rounded-2xl p-4 overflow-hidden border border-white/5 bg-gray-900/10">
+              <button
+                onClick={() => handleNewChat("rag")}
+                className="w-full py-2.5 px-4 mb-4 bg-blue-600 hover:bg-blue-500 font-semibold rounded-lg shadow text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0 text-white"
+              >
+                <Plus className="h-4 w-4" />
+                New Chat
+              </button>
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                <span className="text-[10px] font-bold text-gray-400 block px-2 mb-2 tracking-wider">PREVIOUS CONVERSATIONS</span>
+                {ragSessions.length === 0 ? (
+                  <div className="text-center text-xs text-gray-500 py-8 italic">No chats saved</div>
+                ) : (
+                  ragSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      onClick={() => loadSessionMessages(session.id, "rag")}
+                      className={`flex items-center justify-between group p-2.5 rounded-lg text-xs cursor-pointer transition-all ${
+                        selectedRagSessionId === session.id
+                          ? "bg-blue-600/20 text-blue-200 border border-blue-500/30"
+                          : "hover:bg-white/5 text-gray-300 border border-transparent"
+                      }`}
+                    >
+                      <span className="truncate pr-2">{session.title}</span>
+                      <button
+                        onClick={(e) => handleDeleteSession(session.id, "rag", e)}
+                        className="opacity-0 group-hover:opacity-100 hover:text-red-400 p-0.5 rounded transition-all cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Main Chat Thread Area */}
+            <div className="flex-1 flex flex-col min-w-0 h-full">
               {/* Header Selector */}
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-6 shrink-0">
                 <div>
                   <h2 className="text-xl font-bold">Semantic RAG Chat</h2>
                   <p className="text-xs text-gray-400 mt-1">Converse with your papers using secure vector retrieval.</p>
@@ -739,7 +858,7 @@ export default function App() {
               </div>
 
               {/* Chat Thread */}
-              <div className="flex-1 glass-panel rounded-2xl p-6 overflow-y-auto mb-4 space-y-5 flex flex-col">
+              <div className="flex-1 glass-panel rounded-2xl p-6 overflow-y-auto mb-4 space-y-5 flex flex-col min-h-0">
                 {chatLog.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-center gap-3">
                     <MessageSquare className="h-10 w-10 text-gray-600" />
@@ -793,7 +912,7 @@ export default function App() {
               </div>
 
               {/* Chat Input */}
-              <form onSubmit={handleChatSubmit} className="flex gap-3">
+              <form onSubmit={handleChatSubmit} className="flex gap-3 shrink-0">
                 <input
                   type="text"
                   required
@@ -806,147 +925,187 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={chatLoading}
-                  className="px-6 bg-blue-600 hover:bg-blue-500 transition-all font-semibold rounded-lg flex items-center justify-center gap-2"
+                  className="px-6 bg-blue-600 hover:bg-blue-500 transition-all font-semibold rounded-lg flex items-center justify-center gap-2 text-white cursor-pointer"
                 >
                   <Search className="h-4.5 w-4.5" />
                 </button>
               </form>
-
             </div>
           </div>
         )}
 
         {/* Compare Analytics Tab */}
         {activeTab === "analytics" && (
-          <div className="p-8 max-w-5xl w-full mx-auto space-y-6">
-            <div>
-              <h2 className="text-xl font-bold">Comparative Analytics</h2>
-              <p className="text-xs text-gray-400 mt-1">Perform Map-Reduce RAG comparison across all structured paper profiles.</p>
+          <div className="p-8 w-full max-w-7xl mx-auto h-[calc(100vh-80px)] overflow-hidden flex gap-6">
+            {/* Analytics Chat Sessions Sidebar */}
+            <div className="w-64 shrink-0 flex flex-col glass-panel rounded-2xl p-4 overflow-hidden border border-white/5 bg-gray-900/10">
+              <button
+                onClick={() => handleNewChat("analytics")}
+                className="w-full py-2.5 px-4 mb-4 bg-blue-600 hover:bg-blue-500 font-semibold rounded-lg shadow text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0 text-white"
+              >
+                <Plus className="h-4 w-4" />
+                New Comparison
+              </button>
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                <span className="text-[10px] font-bold text-gray-400 block px-2 mb-2 tracking-wider">PREVIOUS COMPARISONS</span>
+                {analyticsSessions.length === 0 ? (
+                  <div className="text-center text-xs text-gray-500 py-8 italic">No comparisons saved</div>
+                ) : (
+                  analyticsSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      onClick={() => loadSessionMessages(session.id, "analytics")}
+                      className={`flex items-center justify-between group p-2.5 rounded-lg text-xs cursor-pointer transition-all ${
+                        selectedAnalyticsSessionId === session.id
+                          ? "bg-blue-600/20 text-blue-200 border border-blue-500/30"
+                          : "hover:bg-white/5 text-gray-300 border border-transparent"
+                      }`}
+                    >
+                      <span className="truncate pr-2">{session.title}</span>
+                      <button
+                        onClick={(e) => handleDeleteSession(session.id, "analytics", e)}
+                        className="opacity-0 group-hover:opacity-100 hover:text-red-400 p-0.5 rounded transition-all cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-              
-              {/* Controls Column */}
-              <div className="lg:col-span-1 glass-panel p-5 rounded-xl space-y-4">
-                <h3 className="text-xs font-bold text-gray-400 tracking-wider">SELECT PAPERS:</h3>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {Object.keys(papers).map((pid) => (
-                    <label key={pid} className="flex items-center gap-2.5 text-xs text-gray-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedPapersForAnalytics.includes(pid)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedPapersForAnalytics((prev) => [...prev, pid]);
-                          } else {
-                            setSelectedPapersForAnalytics((prev) => prev.filter((x) => x !== pid));
-                          }
-                        }}
-                        className="rounded border-white/15 bg-gray-900 text-blue-600 focus:ring-0"
-                      />
-                      <span className="truncate">{pid.replace(/_/g, " ")}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="pt-2 border-t border-white/5 flex gap-2">
-                  <button 
-                    onClick={() => setSelectedPapersForAnalytics(Object.keys(papers))}
-                    className="text-[10px] text-blue-400 hover:underline font-bold"
-                  >
-                    Select All
-                  </button>
-                  <span className="text-[10px] text-gray-600">|</span>
-                  <button 
-                    onClick={() => setSelectedPapersForAnalytics([])}
-                    className="text-[10px] text-gray-400 hover:underline font-bold"
-                  >
-                    Clear
-                  </button>
-                </div>
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col min-w-0 h-full">
+              {/* Header Info */}
+              <div className="mb-4 shrink-0">
+                <h2 className="text-xl font-bold">Comparative Analytics</h2>
+                <p className="text-xs text-gray-400 mt-1">Perform Map-Reduce RAG comparison across all structured paper profiles.</p>
               </div>
 
-              {/* Main Compare Column */}
-              <div className="lg:col-span-3 flex flex-col h-[600px] min-h-0">
+              {/* Grid of Controls & Chat */}
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch min-h-0">
                 
-                {/* Chat Log View */}
-                <div className="flex-1 glass-panel rounded-xl p-6 overflow-y-auto mb-4 space-y-5">
-                  {analyticsChatLog.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-500 text-center gap-3">
-                      <BarChart2 className="h-10 w-10 text-gray-600" />
-                      <h3 className="font-semibold text-gray-400">Compare Papers Side-by-Side</h3>
-                      <p className="text-xs text-gray-500 max-w-sm">Enter a comparison query to trigger the AI Map-Reduce compiler (e.g. "compare objectives", "limitations").</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {analyticsChatLog.map((msg, idx) => (
-                        <div key={idx} className={`flex gap-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[90%] rounded-xl p-5 text-sm ${
-                            msg.role === "user" 
-                              ? "bg-blue-600 text-white rounded-br-none px-4 py-2.5" 
-                              : msg.role === "error"
-                              ? "bg-red-950/40 border border-red-800/40 text-red-200"
-                              : "bg-gray-900/60 border border-white/5 text-gray-100 rounded-bl-none w-full"
-                          }`}>
-                            {msg.role === "user" ? (
-                              <p className="leading-relaxed font-semibold">{msg.text}</p>
-                            ) : (
-                              <div className="space-y-4">
-                                <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                                  <span className="text-[10px] font-bold text-blue-400 tracking-wider">MAP-REDUCE SYNTHESIS:</span>
-                                  {msg.fields && msg.fields.length > 0 && (
-                                    <span className="text-[9px] text-gray-500">FIELDS ROUTED: {msg.fields.join(", ")}</span>
+                {/* Controls Column */}
+                <div className="lg:col-span-1 glass-panel p-5 rounded-xl space-y-4 flex flex-col overflow-hidden bg-gray-900/5 select-none border border-white/5">
+                  <h3 className="text-xs font-bold text-gray-400 tracking-wider shrink-0">SELECT PAPERS:</h3>
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                    {Object.keys(papers).map((pid) => (
+                      <label key={pid} className="flex items-center gap-2.5 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedPapersForAnalytics.includes(pid)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedPapersForAnalytics((prev) => [...prev, pid]);
+                            } else {
+                              setSelectedPapersForAnalytics((prev) => prev.filter((x) => x !== pid));
+                            }
+                          }}
+                          className="rounded border-white/15 bg-gray-900 text-blue-600 focus:ring-0"
+                        />
+                        <span className="truncate">{pid.replace(/_/g, " ")}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="pt-2 border-t border-white/5 flex gap-2 shrink-0">
+                    <button 
+                      onClick={() => setSelectedPapersForAnalytics(Object.keys(papers))}
+                      className="text-[10px] text-blue-400 hover:underline font-bold"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-[10px] text-gray-600">|</span>
+                    <button 
+                      onClick={() => setSelectedPapersForAnalytics([])}
+                      className="text-[10px] text-gray-400 hover:underline font-bold"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {/* Main Compare Column */}
+                <div className="lg:col-span-3 flex flex-col h-full min-h-0">
+                  
+                  {/* Chat Log View */}
+                  <div className="flex-1 glass-panel rounded-xl p-6 overflow-y-auto mb-4 space-y-5 min-h-0">
+                    {analyticsChatLog.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-gray-500 text-center gap-3">
+                        <BarChart2 className="h-10 w-10 text-gray-600" />
+                        <h3 className="font-semibold text-gray-400">Compare Papers Side-by-Side</h3>
+                        <p className="text-xs text-gray-500 max-w-sm">Enter a comparison query to trigger the AI Map-Reduce compiler (e.g. "compare objectives", "limitations").</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {analyticsChatLog.map((msg, idx) => (
+                          <div key={idx} className={`flex gap-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                            <div className={`max-w-[90%] rounded-xl p-5 text-sm ${
+                              msg.role === "user" 
+                                ? "bg-blue-600 text-white rounded-br-none px-4 py-2.5" 
+                                : msg.role === "error"
+                                ? "bg-red-950/40 border border-red-800/40 text-red-200"
+                                : "bg-gray-900/60 border border-white/5 text-gray-100 rounded-bl-none w-full"
+                            }`}>
+                              {msg.role === "user" ? (
+                                <p className="leading-relaxed font-semibold">{msg.text}</p>
+                              ) : (
+                                <div className="space-y-4">
+                                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                                    <span className="text-[10px] font-bold text-blue-400 tracking-wider">MAP-REDUCE SYNTHESIS:</span>
+                                    {msg.fields && msg.fields.length > 0 && (
+                                      <span className="text-[9px] text-gray-500">FIELDS ROUTED: {msg.fields.join(", ")}</span>
+                                    )}
+                                  </div>
+                                  <div className="prose prose-invert max-w-none text-gray-200">
+                                    {renderMarkdown(msg.text)}
+                                  </div>
+                                  {msg.warnings && msg.warnings.length > 0 && (
+                                    <div className="pt-2 border-t border-white/5 text-[10px] text-gray-400 space-y-1">
+                                      <span className="font-bold text-yellow-400/80">WARNINGS:</span>
+                                      {msg.warnings.map((w, wIdx) => (
+                                        <div key={wIdx}>• {w}</div>
+                                      ))}
+                                    </div>
                                   )}
                                 </div>
-                                <div className="prose prose-invert max-w-none text-gray-200">
-                                  {renderMarkdown(msg.text)}
-                                </div>
-                                {msg.warnings && msg.warnings.length > 0 && (
-                                  <div className="pt-2 border-t border-white/5 text-[10px] text-gray-400 space-y-1">
-                                    <span className="font-bold text-yellow-400/80">WARNINGS:</span>
-                                    {msg.warnings.map((w, wIdx) => (
-                                      <div key={wIdx}>• {w}</div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                      {analyticsLoading && (
-                        <div className="flex gap-4 justify-start">
-                          <div className="bg-gray-900/60 border border-white/5 rounded-xl rounded-bl-none p-4 flex items-center gap-2.5 text-xs text-gray-400">
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                            <span>Mapping profiles and reducing answers...</span>
+                        ))}
+                        {analyticsLoading && (
+                          <div className="flex gap-4 justify-start">
+                            <div className="bg-gray-900/60 border border-white/5 rounded-xl rounded-bl-none p-4 flex items-center gap-2.5 text-xs text-gray-400">
+                              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                              <span>Mapping profiles and reducing answers...</span>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        )}
+                        <div ref={analyticsEndRef} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input Form */}
+                  <form onSubmit={runAnalytics} className="flex gap-3 shrink-0">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ask a follow-up comparison (e.g. 'Compare their limitations', 'Which is faster?')..."
+                      value={analyticsQuery}
+                      onChange={(e) => setAnalyticsQuery(e.target.value)}
+                      className="glass-input flex-1 py-3"
+                      disabled={analyticsLoading || Object.keys(papers).length === 0}
+                    />
+                    <button
+                      type="submit"
+                      disabled={analyticsLoading || Object.keys(papers).length === 0}
+                      className="px-6 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 transition-all font-semibold rounded-lg flex items-center justify-center gap-2 text-sm text-white cursor-pointer"
+                    >
+                      Compare
+                    </button>
+                  </form>
                 </div>
-
-                {/* Input Form */}
-                <form onSubmit={runAnalytics} className="flex gap-3">
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ask a follow-up comparison (e.g. 'Compare their limitations', 'Which is faster?')..."
-                    value={analyticsQuery}
-                    onChange={(e) => setAnalyticsQuery(e.target.value)}
-                    className="glass-input flex-1 py-3"
-                    disabled={analyticsLoading || Object.keys(papers).length === 0}
-                  />
-                  <button
-                    type="submit"
-                    disabled={analyticsLoading || Object.keys(papers).length === 0}
-                    className="px-6 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 transition-all font-semibold rounded-lg flex items-center justify-center gap-2 text-sm"
-                  >
-                    Compare
-                  </button>
-                </form>
-
               </div>
-
             </div>
           </div>
         )}

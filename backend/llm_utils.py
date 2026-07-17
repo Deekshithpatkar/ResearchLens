@@ -9,7 +9,7 @@ api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
-async def generate_response(query: str, chunks: List[Dict]) -> str:
+async def generate_response(query: str, chunks: List[Dict], history: List[Dict] = None) -> str:
     """
     Generate a polished response based on retrieved paper chunks using Gemini (Non-blocking).
     """
@@ -35,6 +35,15 @@ async def generate_response(query: str, chunks: List[Dict]) -> str:
             f"{content}\n\n"
         )
 
+    # Format history context
+    history_str = ""
+    if history:
+        history_str = "Previous Conversation History:\n"
+        for msg in history:
+            role_label = "User" if msg.get("role") == "user" else "Assistant"
+            history_str += f"{role_label}: {msg.get('content')}\n"
+        history_str += "\n"
+
     # Construct the prompt
     prompt = f"""You are ResearchLens AI, a professional research assistant.
 Your task is to answer the user's research query.
@@ -46,6 +55,7 @@ Strict Grounding & Completeness Instructions:
 4. If the context does not contain enough information to answer the query for a specific paper, state: "Context insufficient to answer for [Paper Name]."
 5. Always cite your sources by placing the exact Paper ID in square brackets at the end of the sentence or statement (e.g., [Attention_is_all_you_need]). Do not use space-separated names for citations; use the exact Paper ID with underscores.
 
+{history_str}
 Research Query: {query}
 
 Context Chunks:

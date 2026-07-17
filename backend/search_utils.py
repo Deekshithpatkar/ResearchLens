@@ -150,3 +150,15 @@ async def execute_semantic_search(query: str, paper_id: str = None, top_k: int =
         "num_results": len(ranked_results),
         "results": ranked_results
     }
+
+def is_conversational_greeting(query: str) -> bool:
+    """Detect if a user query is a simple greeting or chitchat to bypass expensive RAG synthesis."""
+    if not query:
+        return False
+    cleaned = query.strip().strip("?").strip("!").lower()
+    greetings = {"hi", "hello", "hey", "hy", "hola", "greetings", "good morning", "good afternoon", "good evening", "howdy", "yo", "sup"}
+    if cleaned in greetings:
+        return True
+    if cleaned in {"how are you", "how are you doing", "what's up", "whats up", "who are you", "what is your name"}:
+        return True
+    return False

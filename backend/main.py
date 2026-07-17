@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from backend.database import engine, Base, get_db
-from backend.models import User as DBUser, Paper as DBPaper
+from backend.models import User as DBUser, Paper as DBPaper, ChatSession as DBChatSession, ChatMessage as DBChatMessage
 from backend.auth import hash_password, verify_password, create_access_token, get_current_user
 from backend.config import (
     DATA_DIR,
@@ -29,7 +29,7 @@ from backend.config import (
     get_user_clusters_dir
 )
 from backend.metadata_utils import load_metadata, save_metadata
-from backend.search_utils import build_summary_text, execute_semantic_search
+from backend.search_utils import build_summary_text, execute_semantic_search, is_conversational_greeting
 from backend.llm_utils import generate_response
 from backend.pdf_utils import extract_text_from_pdf
 from backend.text_chunker import chunk_text
@@ -77,6 +77,29 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+class ChatSessionCreate(BaseModel):
+    title: str
+    chat_type: str
+
+class ChatSessionResponse(BaseModel):
+    id: str
+    title: str
+    chat_type: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ChatMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    chunks: Optional[List] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 @app.get("/")
 def home():
     """Health check endpoint"""
@@ -93,9 +116,70 @@ def home():
             "POST /analytics/reprocess/",
             "GET /analytics/clusters/cosine/",
             "GET /analytics/clusters/hierarchical/",
-            "GET /analytics/timeline/"
+            "GET /analytics/timeline/",
+            "GET /chats/",
+            "POST /chats/",
+            "GET /chats/{session_id}/messages/",
+            "DELETE /chats/{session_id}/"
         ]
     }
+
+@app.get("/chats/", response_model=List[ChatSessionResponse])
+def get_chat_sessions(
+    chat_type: Optional[str] = None,
+    current_user: DBUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(DBChatSession).filter(DBChatSession.user_id == current_user.id)
+    if chat_type:
+        query = query.filter(DBChatSession.chat_type == chat_type)
+    return query.order_by(DBChatSession.created_at.desc()).all()
+
+@app.post("/chats/", response_model=ChatSessionResponse)
+def create_chat_session(
+    session: ChatSessionCreate,
+    current_user: DBUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    db_session = DBChatSession(
+        user_id=current_user.id,
+        title=session.title,
+        chat_type=session.chat_type
+    )
+    db.add(db_session)
+    db.commit()
+    db.refresh(db_session)
+    return db_session
+
+@app.get("/chats/{session_id}/messages/", response_model=List[ChatMessageResponse])
+def get_chat_messages(
+    session_id: str,
+    current_user: DBUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    session = db.query(DBChatSession).filter(
+        DBChatSession.id == session_id,
+        DBChatSession.user_id == current_user.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return session.messages
+
+@app.delete("/chats/{session_id}/")
+def delete_chat_session(
+    session_id: str,
+    current_user: DBUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    session = db.query(DBChatSession).filter(
+        DBChatSession.id == session_id,
+        DBChatSession.user_id == current_user.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    db.delete(session)
+    db.commit()
+    return {"status": "success", "message": "Chat session deleted"}
 
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 def register(user_in: UserRegister, db: Session = Depends(get_db)):
@@ -337,12 +421,65 @@ async def query_papers(
     query: str,
     paper_id: str = None,
     top_k: int = 8,
-    current_user: DBUser = Depends(get_current_user)
+    session_id: Optional[str] = None,
+    current_user: DBUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
     Perform semantic search and generate a synthesized, polished response using Gemini.
     """
     try:
+        # Fetch or create session
+        if session_id:
+            db_session = db.query(DBChatSession).filter(
+                DBChatSession.id == session_id,
+                DBChatSession.user_id == current_user.id
+            ).first()
+            if not db_session:
+                raise HTTPException(status_code=404, detail="Chat session not found")
+        else:
+            title = query[:40] + "..." if len(query) > 40 else query
+            db_session = DBChatSession(
+                user_id=current_user.id,
+                title=title,
+                chat_type="rag"
+            )
+            db.add(db_session)
+            db.commit()
+            db.refresh(db_session)
+
+        if is_conversational_greeting(query):
+            user_msg = DBChatMessage(
+                session_id=db_session.id,
+                role="user",
+                content=query
+            )
+            answer = "Hello! I am your ResearchLens assistant. Ask me anything about the papers in your library and I will search their content to answer you."
+            assistant_msg = DBChatMessage(
+                session_id=db_session.id,
+                role="assistant",
+                content=answer,
+                chunks=[]
+            )
+            db.add(user_msg)
+            db.add(assistant_msg)
+            db.commit()
+
+            return {
+                "query": query,
+                "answer": answer,
+                "chunks": [],
+                "session_id": db_session.id
+            }
+
+        # Retrieve conversation history
+        history = []
+        for msg in db_session.messages:
+            history.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+
         search_results = await execute_semantic_search(
             query=query,
             paper_id=paper_id,
@@ -350,12 +487,29 @@ async def query_papers(
             user_id=current_user.id
         )
         chunks = search_results.get("results", [])
-        answer = await generate_response(query=query, chunks=chunks)
+        answer = await generate_response(query=query, chunks=chunks, history=history)
         
+        # Save messages to database
+        user_msg = DBChatMessage(
+            session_id=db_session.id,
+            role="user",
+            content=query
+        )
+        assistant_msg = DBChatMessage(
+            session_id=db_session.id,
+            role="assistant",
+            content=answer,
+            chunks=chunks
+        )
+        db.add(user_msg)
+        db.add(assistant_msg)
+        db.commit()
+
         return {
             "query": query,
             "answer": answer,
-            "chunks": chunks
+            "chunks": chunks,
+            "session_id": db_session.id
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -367,18 +521,83 @@ async def query_papers(
 @app.post("/analytics/")
 async def global_analytics(
     query: str,
+    original_query: Optional[str] = None,
     paper_ids: Optional[str] = Query(None),
-    current_user: DBUser = Depends(get_current_user)
+    session_id: Optional[str] = None,
+    current_user: DBUser = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
     Perform global, multi-paper analytics comparison (Map-Reduce RAG) over paper profiles using query params.
     Example: ?query=compare objectives&paper_ids=all OR ?query=compare objectives&paper_ids=ALBERT,BERT
     """
     try:
+        # Fetch or create session
+        if session_id:
+            db_session = db.query(DBChatSession).filter(
+                DBChatSession.id == session_id,
+                DBChatSession.user_id == current_user.id
+            ).first()
+            if not db_session:
+                raise HTTPException(status_code=404, detail="Chat session not found")
+        else:
+            display_title = original_query or query
+            title = display_title[:40] + "..." if len(display_title) > 40 else display_title
+            db_session = DBChatSession(
+                user_id=current_user.id,
+                title=title,
+                chat_type="analytics"
+            )
+            db.add(db_session)
+            db.commit()
+            db.refresh(db_session)
+
+        if is_conversational_greeting(original_query or query):
+            user_msg = DBChatMessage(
+                session_id=db_session.id,
+                role="user",
+                content=original_query or query
+            )
+            answer = "Hello! I am your ResearchLens assistant. I can help you compile, synthesize, and compare the papers in your workspace. What would you like to analyze today?"
+            assistant_msg = DBChatMessage(
+                session_id=db_session.id,
+                role="assistant",
+                content=answer,
+                chunks=None
+            )
+            db.add(user_msg)
+            db.add(assistant_msg)
+            db.commit()
+
+            return {
+                "answer": answer,
+                "warnings": [],
+                "fields_used": [],
+                "session_id": db_session.id
+            }
+
         parsed_ids = None
         if paper_ids:
             parsed_ids = [pid.strip() for pid in paper_ids.split(",") if pid.strip()]
         result = await execute_global_analytics(query=query, paper_ids=parsed_ids, user_id=current_user.id)
+        
+        # Save messages to database
+        user_msg = DBChatMessage(
+            session_id=db_session.id,
+            role="user",
+            content=original_query or query
+        )
+        assistant_msg = DBChatMessage(
+            session_id=db_session.id,
+            role="assistant",
+            content=result.get("answer", ""),
+            chunks=None
+        )
+        db.add(user_msg)
+        db.add(assistant_msg)
+        db.commit()
+
+        result["session_id"] = db_session.id
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing analytics: {str(e)}")

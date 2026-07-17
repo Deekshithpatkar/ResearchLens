@@ -71,10 +71,13 @@ export const papersAPI = {
     const response = await api.delete(`/papers/${paperId}/`);
     return response.data;
   },
-  query: async (query, paperId = null, topK = 8) => {
+  query: async (query, paperId = null, topK = 8, sessionId = null) => {
     let url = `/query/?query=${encodeURIComponent(query)}&top_k=${topK}`;
     if (paperId) {
       url += `&paper_id=${encodeURIComponent(paperId)}`;
+    }
+    if (sessionId) {
+      url += `&session_id=${encodeURIComponent(sessionId)}`;
     }
     const response = await api.post(url);
     return response.data;
@@ -82,10 +85,16 @@ export const papersAPI = {
 };
 
 export const analyticsAPI = {
-  global: async (query, paperIds = null) => {
+  global: async (query, paperIds = null, originalQuery = null, sessionId = null) => {
     let url = `/analytics/?query=${encodeURIComponent(query)}`;
     if (paperIds && paperIds.length > 0) {
       url += `&paper_ids=${encodeURIComponent(paperIds.join(","))}`;
+    }
+    if (originalQuery) {
+      url += `&original_query=${encodeURIComponent(originalQuery)}`;
+    }
+    if (sessionId) {
+      url += `&session_id=${encodeURIComponent(sessionId)}`;
     }
     const response = await api.post(url);
     return response.data;
@@ -108,6 +117,29 @@ export const analyticsAPI = {
   },
   getTimeline: async () => {
     const response = await api.get("/analytics/timeline/");
+    return response.data;
+  },
+};
+
+export const chatsAPI = {
+  list: async (type = null) => {
+    let url = "/chats/";
+    if (type) {
+      url += `?chat_type=${type}`;
+    }
+    const response = await api.get(url);
+    return response.data;
+  },
+  create: async (title, type) => {
+    const response = await api.post("/chats/", { title, chat_type: type });
+    return response.data;
+  },
+  getMessages: async (sessionId) => {
+    const response = await api.get(`/chats/${sessionId}/messages/`);
+    return response.data;
+  },
+  delete: async (sessionId) => {
+    const response = await api.delete(`/chats/${sessionId}/`);
     return response.data;
   },
 };
